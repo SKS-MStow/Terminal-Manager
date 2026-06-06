@@ -276,6 +276,8 @@ final class TerminalManagerViewModel: ObservableObject {
             return "Username is required."
         case SavedSSHConnectionStoreError.invalidPort:
             return "Port must be between 1 and 65535."
+        case SavedSSHConnectionStoreError.missingHostKeyTrust:
+            return "Add a pinned SHA256 host key fingerprint or allow local/dev unsafe host-key trust."
         case SavedSSHConnectionStoreError.missingPassword:
             return "Password is required for the current Citadel SSH bridge."
         case SavedSSHConnectionStoreError.keychainReadFailed(let status):

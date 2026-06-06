@@ -39,12 +39,22 @@ On-device SSH setup:
 1. Launch Terminal Manager.
 2. Tap the server button in the top bar.
 3. Enter the SSH host, username, port, and password.
-4. Keep `Allow local/dev unsafe host key` enabled for now.
+4. Paste the host's pinned SHA256 fingerprint, or enable `Allow local/dev unsafe host key` only for a smoke run.
 5. Tap `Save & Connect`.
 
 The app stores host, username, port, and display name in `UserDefaults`. The
-password is stored in the iOS Keychain. After saving, the app rebuilds the live
-SSH runtime, discovers tmux sessions, and attaches to the selected session.
+password is stored in the iOS Keychain. The pinned host-key fingerprint is also
+stored with the saved profile. After saving, the app rebuilds the live SSH
+runtime, discovers tmux sessions, and attaches to the selected session.
+
+To print the host-key SHA256 fingerprint from the Mac before saving it on the
+iPhone:
+
+```sh
+ssh-keyscan -p 22 <mac-or-hostname> 2>/dev/null | ssh-keygen -lf - -E sha256
+```
+
+Copy the `SHA256:...` value for the host key you want to trust.
 
 Live SSH tmux smoke mode is opt-in. Set these environment variables in the
 Xcode scheme, or prefix them with `SIMCTL_CHILD_` when launching from `simctl`:
@@ -54,14 +64,13 @@ TERMINAL_MANAGER_LIVE_SSH_ENABLED=1
 TERMINAL_MANAGER_LIVE_SSH_HOST=<mac-or-hostname>
 TERMINAL_MANAGER_LIVE_SSH_USER=<ssh-user>
 TERMINAL_MANAGER_LIVE_SSH_PASSWORD=<ssh-password>
-TERMINAL_MANAGER_LIVE_SSH_ALLOW_UNSAFE_HOST_KEY=1
+TERMINAL_MANAGER_LIVE_SSH_PINNED_SHA256=SHA256:<fingerprint>
 ```
 
 Environment smoke settings override saved iPhone settings. If the env vars are
 not set, the app uses the saved SSH profile. If no saved profile exists, it uses
 the fixture runtime for simulator/demo work.
 
-The unsafe host-key flag is required because the current Citadel bridge only
-supports the smoke-only host-key policy. Keep this for local testing only; the
-next production path needs known-host or pinned-key support plus Keychain-backed
-credential entry.
+For local smoke testing only, `TERMINAL_MANAGER_LIVE_SSH_ALLOW_UNSAFE_HOST_KEY=1`
+can be used instead of a pinned fingerprint. Full OpenSSH `known_hosts` parsing
+is still not implemented in the Citadel bridge.

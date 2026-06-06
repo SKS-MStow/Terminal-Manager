@@ -9,6 +9,7 @@ struct SavedSSHConnection: Codable, Equatable, Sendable {
     var port: Int
     var username: String
     var allowUnsafeHostKeyPolicy: Bool
+    var pinnedHostKeySHA256: String?
 
     var host: HostProfile {
         HostProfile(
@@ -24,6 +25,7 @@ struct SavedSSHConnection: Codable, Equatable, Sendable {
 enum SavedSSHConnectionStoreError: Error, Equatable {
     case missingHostname
     case missingUsername
+    case missingHostKeyTrust
     case invalidPort
     case missingPassword
     case passwordEncodingFailed
@@ -38,7 +40,12 @@ struct SavedSSHConnectionDraft: Equatable {
     var port: String = "22"
     var username: String = NSUserName()
     var password: String = ""
-    var allowUnsafeHostKeyPolicy: Bool = true
+    var allowUnsafeHostKeyPolicy: Bool = false
+    var pinnedHostKeySHA256: String = ""
+
+    var hasHostKeyTrustInput: Bool {
+        allowUnsafeHostKeyPolicy || !pinnedHostKeySHA256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     init() {}
 
@@ -49,6 +56,7 @@ struct SavedSSHConnectionDraft: Equatable {
         self.username = saved.username
         self.password = password
         self.allowUnsafeHostKeyPolicy = saved.allowUnsafeHostKeyPolicy
+        self.pinnedHostKeySHA256 = saved.pinnedHostKeySHA256 ?? ""
     }
 }
 
@@ -80,7 +88,8 @@ struct SavedSSHConnectionStore: @unchecked Sendable {
             hostname: hostname,
             port: port > 0 ? port : 22,
             username: username,
-            allowUnsafeHostKeyPolicy: defaults.bool(forKey: key("allowUnsafeHostKeyPolicy"))
+            allowUnsafeHostKeyPolicy: defaults.bool(forKey: key("allowUnsafeHostKeyPolicy")),
+            pinnedHostKeySHA256: defaults.string(forKey: key("pinnedHostKeySHA256"))
         )
     }
 
@@ -106,13 +115,19 @@ struct SavedSSHConnectionStore: @unchecked Sendable {
         guard !draft.password.isEmpty else {
             throw SavedSSHConnectionStoreError.missingPassword
         }
+        let pinnedHostKeySHA256 = draft.pinnedHostKeySHA256
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard draft.allowUnsafeHostKeyPolicy || !pinnedHostKeySHA256.isEmpty else {
+            throw SavedSSHConnectionStoreError.missingHostKeyTrust
+        }
 
         let connection = SavedSSHConnection(
             displayName: draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines),
             hostname: hostname,
             port: port,
             username: username,
-            allowUnsafeHostKeyPolicy: draft.allowUnsafeHostKeyPolicy
+            allowUnsafeHostKeyPolicy: draft.allowUnsafeHostKeyPolicy,
+            pinnedHostKeySHA256: pinnedHostKeySHA256.isEmpty ? nil : pinnedHostKeySHA256
         )
         try savePassword(draft.password, for: connection)
 
@@ -121,6 +136,7 @@ struct SavedSSHConnectionStore: @unchecked Sendable {
         defaults.set(connection.port, forKey: key("port"))
         defaults.set(connection.username, forKey: key("username"))
         defaults.set(connection.allowUnsafeHostKeyPolicy, forKey: key("allowUnsafeHostKeyPolicy"))
+        defaults.set(connection.pinnedHostKeySHA256, forKey: key("pinnedHostKeySHA256"))
 
         return connection
     }
@@ -129,7 +145,7 @@ struct SavedSSHConnectionStore: @unchecked Sendable {
         if let connection = load() {
             try deletePassword(for: connection)
         }
-        ["displayName", "hostname", "port", "username", "allowUnsafeHostKeyPolicy"].forEach {
+        ["displayName", "hostname", "port", "username", "allowUnsafeHostKeyPolicy", "pinnedHostKeySHA256"].forEach {
             defaults.removeObject(forKey: key($0))
         }
     }

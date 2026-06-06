@@ -31,9 +31,10 @@ enum TerminalAppRuntimeFactory {
             )
         }
 
-        if let savedConnection = connectionStore.load() {
+        if let savedConnection = connectionStore.load(),
+           let configuration = LiveSSHTerminalAppRuntime.Configuration(savedConnection: savedConnection) {
             return LiveSSHTerminalAppRuntime(
-                configuration: LiveSSHTerminalAppRuntime.Configuration(savedConnection: savedConnection),
+                configuration: configuration,
                 passwordProvider: KeychainPasswordProvider()
             )
         }
@@ -58,6 +59,7 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
         var passwordAccount: String
         var inlinePassword: String?
         var allowUnsafeHostKeyPolicy: Bool
+        var pinnedHostKeySHA256: String?
 
         init?(
             environment: [String: String],
@@ -83,7 +85,9 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
             }
 
             let allowUnsafeHostKeyPolicy = environment[prefix + "ALLOW_UNSAFE_HOST_KEY"] == "1"
-            guard allowUnsafeHostKeyPolicy else {
+            let pinnedHostKeySHA256 = environment[prefix + "PINNED_SHA256"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard allowUnsafeHostKeyPolicy || !(pinnedHostKeySHA256?.isEmpty ?? true) else {
                 return nil
             }
 
@@ -98,14 +102,22 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
             self.passwordAccount = "\(username)@\(hostname)"
             self.inlinePassword = password
             self.allowUnsafeHostKeyPolicy = allowUnsafeHostKeyPolicy
+            self.pinnedHostKeySHA256 = pinnedHostKeySHA256?.isEmpty == false ? pinnedHostKeySHA256 : nil
         }
 
-        init(savedConnection: SavedSSHConnection) {
+        init?(savedConnection: SavedSSHConnection) {
+            let pinnedHostKeySHA256 = savedConnection.pinnedHostKeySHA256?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard savedConnection.allowUnsafeHostKeyPolicy || !(pinnedHostKeySHA256?.isEmpty ?? true) else {
+                return nil
+            }
+
             self.host = savedConnection.host
             self.passwordService = SavedSSHConnectionStore.passwordService
             self.passwordAccount = SavedSSHConnectionStore.passwordAccount(for: savedConnection.host)
             self.inlinePassword = nil
             self.allowUnsafeHostKeyPolicy = savedConnection.allowUnsafeHostKeyPolicy
+            self.pinnedHostKeySHA256 = pinnedHostKeySHA256?.isEmpty == false ? pinnedHostKeySHA256 : nil
         }
     }
 
@@ -120,7 +132,7 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
                 service: configuration.passwordService,
                 account: configuration.passwordAccount
             ),
-            hostKeyPolicy: configuration.allowUnsafeHostKeyPolicy ? .acceptAnyForSmokeOnly : .knownHosts
+            hostKeyPolicy: Self.hostKeyPolicy(for: configuration)
         )
         let factory = CitadelConnectionFactory(
             allowUnsafeHostKeyPolicy: configuration.allowUnsafeHostKeyPolicy,
@@ -133,6 +145,17 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
                 transport: CitadelTerminalTransport(profile: profile, factory: factory)
             )
         )
+    }
+
+    private static func hostKeyPolicy(for configuration: Configuration) -> SSHHostKeyPolicy {
+        if let pinnedHostKeySHA256 = configuration.pinnedHostKeySHA256,
+           !pinnedHostKeySHA256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .pinnedSHA256(pinnedHostKeySHA256)
+        }
+        if configuration.allowUnsafeHostKeyPolicy {
+            return .acceptAnyForSmokeOnly
+        }
+        return .knownHosts
     }
 
     nonisolated func terminalTextStream() -> AsyncThrowingStream<String, Error> {

@@ -212,8 +212,11 @@ private struct ConnectionSetupSheet: View {
                 }
 
                 Section("Host Key") {
+                    TextField("Pinned SHA256 fingerprint", text: $draft.pinnedHostKeySHA256)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     Toggle("Allow local/dev unsafe host key", isOn: $draft.allowUnsafeHostKeyPolicy)
-                    Text("Required until pinned or known-host validation is implemented in the Citadel bridge.")
+                    Text("Use a pinned SHA256 fingerprint for normal phone testing. Unsafe trust is only for local smoke runs.")
                         .font(.caption)
                         .foregroundStyle(AppColor.secondaryText)
                 }
@@ -225,7 +228,7 @@ private struct ConnectionSetupSheet: View {
                             Text("Save & Connect")
                         }
                     }
-                    .disabled(!draft.allowUnsafeHostKeyPolicy)
+                    .disabled(!draft.hasHostKeyTrustInput)
                 } footer: {
                     Text(statusText)
                 }

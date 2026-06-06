@@ -37,6 +37,21 @@ expect(settings.host == "example.com", "Expected host to map into Citadel settin
 expect(settings.port == 22, "Expected default SSH port to map into Citadel settings")
 _ = settings.authenticationMethod()
 
+let pinnedSettings = try CitadelConnectionFactory(passwordProvider: StaticPasswordProvider(password: "secret"))
+    .settings(for: passwordProfile(hostKeyPolicy: .pinnedSHA256("SHA256:abc123=")))
+expect(pinnedSettings.host == "example.com", "Expected pinned host-key settings to map host")
+expect(pinnedSettings.port == 22, "Expected pinned host-key settings to map port")
+_ = pinnedSettings.authenticationMethod()
+
+do {
+    _ = try CitadelConnectionFactory(passwordProvider: StaticPasswordProvider(password: "secret"))
+        .settings(for: passwordProfile(hostKeyPolicy: .pinnedSHA256("  ")))
+    fatalError("Expected empty pinned host-key fingerprint to throw")
+} catch CitadelSupportError.invalidPinnedHostKeyFingerprint(_) {
+} catch {
+    fatalError("Unexpected empty pinned host-key error: \(error)")
+}
+
 do {
     _ = try CitadelConnectionFactory(passwordProvider: StaticPasswordProvider(password: "secret"))
         .settings(for: passwordProfile(hostKeyPolicy: .acceptAnyForSmokeOnly))
