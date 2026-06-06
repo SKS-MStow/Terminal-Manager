@@ -83,6 +83,29 @@ public final class TerminalPipeline: Sendable {
         return remotePath
     }
 
+    public func uploadAttachment(
+        _ attachment: PendingAttachment,
+        in session: TerminalSession,
+        using uploader: any AttachmentUploader
+    ) async throws -> PendingAttachment {
+        let remotePath = attachmentPathBuilder.remotePath(for: attachment, session: session)
+        return try await uploader.upload(attachment, to: remotePath)
+    }
+
+    public func uploadAttachmentAndSendReference(
+        _ attachment: PendingAttachment,
+        in session: TerminalSession,
+        using uploader: any AttachmentUploader
+    ) async throws -> PendingAttachment {
+        let uploaded = try await uploadAttachment(attachment, in: session, using: uploader)
+        guard let remotePath = uploaded.remotePath else {
+            return uploaded
+        }
+
+        try await sendLine(remotePath)
+        return uploaded
+    }
+
     public func resizeTerminal(to size: TerminalSize) async throws {
         try await transport.resize(to: size)
     }

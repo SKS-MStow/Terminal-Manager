@@ -47,8 +47,10 @@ struct TerminalManagerLocalE2E {
             try expect(history.contains("terminal-manager-e2e"), "captured history did not include marker")
 
             try await pipeline.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
+            try await checkAttachmentUpload(pipeline: pipeline, session: session)
             let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
             try expect(writes.first == "tmux attach-session -t '\(sessionName)'\r", "pipeline did not emit expected attach command")
+            try expect(writes.last == "~/TerminalManager/attachments/\(sessionName)/e2e-photo.png\r", "pipeline did not emit expected uploaded attachment path")
 
             try await checkShellProcessTransport(host: host)
             try await checkEnvGatedOpenSSH()
@@ -111,6 +113,39 @@ struct TerminalManagerLocalE2E {
 
         let output = try await reader.value
         try expect(output.contains(marker), "shell process transport did not stream marker")
+    }
+
+    private static func checkAttachmentUpload(
+        pipeline: TerminalPipeline,
+        session: TerminalSession
+    ) async throws {
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("terminal-manager-local-upload-\(UUID().uuidString)")
+        let localFile = tempRoot.appendingPathComponent("local/e2e photo.png")
+        let remoteRoot = tempRoot.appendingPathComponent("remote")
+
+        try fileManager.createDirectory(at: localFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("local-e2e-attachment".utf8).write(to: localFile)
+        defer {
+            try? fileManager.removeItem(at: tempRoot)
+        }
+
+        let uploader = LocalFilesystemAttachmentUploader(remoteRoot: remoteRoot)
+        let uploaded = try await pipeline.uploadAttachmentAndSendReference(
+            PendingAttachment(localURL: localFile, kind: .image),
+            in: session,
+            using: uploader
+        )
+        let remotePath = uploaded.remotePath ?? ""
+        let copiedFile = remoteRoot
+            .appendingPathComponent(session.tmuxSessionName)
+            .appendingPathComponent("e2e-photo.png")
+
+        try expect(remotePath == "~/TerminalManager/attachments/\(session.tmuxSessionName)/e2e-photo.png", "local E2E uploaded remote path was wrong")
+        try expect(fileManager.fileExists(atPath: copiedFile.path), "local E2E attachment was not copied")
+        let copiedBytes = try Data(contentsOf: copiedFile)
+        try expect(copiedBytes == Data("local-e2e-attachment".utf8), "local E2E copied bytes were wrong")
     }
 
     private static func requireTool(_ tool: String, shell: LocalShell) async throws {
