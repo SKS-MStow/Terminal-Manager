@@ -27,4 +27,5 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sksmstow.TerminalManager
         PRODUCT_NAME: Terminal Manager
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: V8W579ZBVB
         INFOPLIST_FILE: TerminalManager-iOS/Info.plist
