@@ -3,4 +3,5 @@
 DerivedData/
 xcuserdata/
 *.xcuserstate
+Apps/TerminalManager-iOS/TerminalManager.xcodeproj/
 .DS_Store
