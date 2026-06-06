@@ -24,6 +24,7 @@ struct TerminalManagerSelfCheck {
         try checkAttachmentPath()
         try await checkRecordingTransport()
         try await checkTerminalPipelineE2E()
+        try checkOpenSSHArguments()
         print("Terminal Manager self-check passed")
     }
 
@@ -204,6 +205,27 @@ struct TerminalManagerSelfCheck {
             "continue\r",
             "~/TerminalManager/attachments/codex-sks/screen-shot.png\r"
         ], "expected E2E terminal writes")
+    }
+
+    private static func checkOpenSSHArguments() throws {
+        #if os(macOS)
+        let host = HostProfile(
+            displayName: "Mac",
+            hostname: "marks-macbook-air.tail79ccb5.ts.net",
+            port: 2222,
+            username: "mark"
+        )
+
+        let shellArgs = OpenSSHCommandBuilder.remoteShellArguments(for: host)
+        try expect(shellArgs.contains("-T"), "expected non-PTY remote shell")
+        try expect(shellArgs.contains("mark@marks-macbook-air.tail79ccb5.ts.net"), "expected SSH destination")
+        try expect(shellArgs.contains("2222"), "expected SSH port")
+        try expect(shellArgs.contains("BatchMode=yes"), "expected batch mode")
+
+        let terminalArgs = OpenSSHCommandBuilder.terminalArguments(for: host)
+        try expect(terminalArgs.contains("-tt"), "expected forced TTY")
+        try expect(!terminalArgs.contains("BatchMode=yes"), "expected interactive terminal auth")
+        #endif
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {

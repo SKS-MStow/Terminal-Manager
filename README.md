@@ -50,6 +50,18 @@ swift run terminal-manager-local-e2e
 creates a temporary session, captures scrollback through `TmuxService`, verifies
 the pipeline attach command, and removes the session.
 
+To also smoke-test OpenSSH against a real host:
+
+```sh
+TERMINAL_MANAGER_SSH_HOST=marks-macbook-air.tail79ccb5.ts.net \
+TERMINAL_MANAGER_SSH_USER=mark \
+swift run terminal-manager-local-e2e
+```
+
+This requires SSH credentials to be configured for non-interactive command
+execution. The current iOS-target transport plan is SwiftTerm for rendering plus
+Citadel for SSH once full Xcode is selected.
+
 The iOS app target needs full Xcode selected, not only Command Line Tools:
 
 ```sh
