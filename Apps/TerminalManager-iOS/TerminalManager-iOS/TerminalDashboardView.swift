@@ -217,7 +217,7 @@ private struct SessionChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: session.agent == nil ? "terminal" : "sparkles")
+                Image(systemName: "terminal")
                 Text(session.title)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -242,7 +242,7 @@ private struct SessionRow: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Image(systemName: session.agent == nil ? "terminal" : "sparkles")
+                    Image(systemName: "terminal")
                         .foregroundStyle(selected ? AppColor.inverseText : AppColor.accent)
                     Text(session.title)
                         .font(.subheadline.weight(.semibold))
@@ -258,6 +258,13 @@ private struct SessionRow: View {
                     .font(.caption)
                     .foregroundStyle(selected ? AppColor.inverseText.opacity(0.72) : AppColor.secondaryText)
                     .lineLimit(1)
+
+                if let windowIndex = session.windowIndex {
+                    Text("tmux:\(session.tmuxSessionName) window:\(windowIndex)")
+                        .font(.caption2)
+                        .foregroundStyle(selected ? AppColor.inverseText.opacity(0.68) : AppColor.secondaryText)
+                        .lineLimit(1)
+                }
             }
             .foregroundStyle(selected ? AppColor.inverseText : AppColor.primaryText)
             .padding(12)
@@ -273,7 +280,7 @@ private struct TerminalWorkspace: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalSurface(lines: viewModel.terminalLines)
+            TerminalSurface(lines: viewModel.terminalLines, terminalSize: viewModel.terminalSize)
             ComposerBar(
                 text: $viewModel.composerText,
                 pendingAttachmentCount: viewModel.pendingAttachments.count,
@@ -383,27 +390,55 @@ private struct TmuxSessionDrawer: View {
 
 private struct TerminalSurface: View {
     var lines: [String]
+    var terminalSize: TerminalSize
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 5) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                        Text(line.isEmpty ? " " : line)
-                            .font(.system(size: 13, weight: .regular, design: .monospaced))
-                            .foregroundStyle(AppColor.terminalText)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(index)
+        GeometryReader { geometry in
+            let metrics = TerminalGridMetrics.fitting(
+                terminalSize: terminalSize,
+                availableWidth: Double(geometry.size.width),
+                availableHeight: Double(geometry.size.height)
+            )
+            let terminalFont = Font.system(size: CGFloat(metrics.fontSize), weight: .regular, design: .monospaced)
+
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            Text(line.isEmpty ? " " : line)
+                                .font(terminalFont)
+                                .foregroundStyle(AppColor.terminalText)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .textSelection(.enabled)
+                                .frame(width: CGFloat(metrics.gridWidth), height: CGFloat(metrics.lineHeight), alignment: .leading)
+                                .id(index)
+                        }
                     }
+                    .padding(.horizontal, CGFloat(metrics.horizontalPadding))
+                    .padding(.vertical, CGFloat(metrics.verticalPadding))
+                    .frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
                 }
-                .padding(14)
+                .background(.black)
+                .onAppear {
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: lines.count) { _, _ in
+                    scrollToBottom(proxy)
+                }
             }
-            .background(.black)
-            .onAppear {
-                if let last = lines.indices.last {
-                    proxy.scrollTo(last, anchor: .bottom)
-                }
+        }
+        .background(.black)
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        guard let last = lines.indices.last else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            withAnimation(.linear(duration: 0.08)) {
+                proxy.scrollTo(last, anchor: .bottom)
             }
         }
     }

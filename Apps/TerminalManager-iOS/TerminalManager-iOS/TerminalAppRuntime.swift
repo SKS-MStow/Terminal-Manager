@@ -14,6 +14,7 @@ protocol TerminalAppRuntime: Sendable {
     func bootstrap() async throws -> TerminalAppBootstrap
     func refreshSessions() async throws -> [TerminalSession]
     func attach(to session: TerminalSession, size: TerminalSize) async throws
+    func resizeTerminal(to size: TerminalSize) async throws
     func sendUserText(_ text: String) async throws
     func terminalTextStream() -> AsyncThrowingStream<String, Error>
 }
@@ -161,6 +162,10 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
         try await controller.attach(to: session, size: size)
     }
 
+    func resizeTerminal(to size: TerminalSize) async throws {
+        try await controller.resizeTerminal(to: size)
+    }
+
     func sendUserText(_ text: String) async throws {
         try await controller.sendUserText(text)
     }
@@ -222,6 +227,10 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
 
     func attach(to session: TerminalSession, size: TerminalSize) async throws {
         try await controller.attach(to: session, size: size)
+    }
+
+    func resizeTerminal(to size: TerminalSize) async throws {
+        try await controller.resizeTerminal(to: size)
     }
 
     func sendUserText(_ text: String) async throws {
