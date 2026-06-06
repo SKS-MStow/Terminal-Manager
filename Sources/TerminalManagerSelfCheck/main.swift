@@ -25,6 +25,7 @@ struct TerminalManagerSelfCheck {
         try checkAttachmentPath()
         try await checkAttachmentUpload()
         try await checkRecordingTransport()
+        try checkTerminalGridMetrics()
         try await checkTerminalPipelineE2E()
         try await checkTerminalSessionController()
         try checkOpenSSHArguments()
@@ -268,6 +269,19 @@ struct TerminalManagerSelfCheck {
         try expect(size == TerminalSize(columns: 120, rows: 40), "expected transport size")
     }
 
+    private static func checkTerminalGridMetrics() throws {
+        let metrics = TerminalGridMetrics.fitting(
+            terminalSize: TerminalSize(columns: 100, rows: 32),
+            availableWidth: 390,
+            availableHeight: 620
+        )
+
+        try expect(metrics.terminalSize == TerminalSize(columns: 100, rows: 32), "expected grid metrics to preserve tmux size")
+        try expect(metrics.fontSize < 13, "expected iPhone-width grid to reduce font size")
+        try expect(metrics.gridWidth + metrics.horizontalPadding * 2 <= 390.01, "expected 100 columns to fit available width")
+        try expect(metrics.gridHeight + metrics.verticalPadding * 2 <= 620.01, "expected 32 rows to fit available height")
+    }
+
     private static func checkTerminalPipelineE2E() async throws {
         let host = HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark")
         let shell = StubRemoteShell(responses: [
@@ -365,13 +379,16 @@ struct TerminalManagerSelfCheck {
 
         try await controller.attach(to: session, size: TerminalSize(columns: 120, rows: 40))
         try await controller.attach(to: secondSession, size: TerminalSize(columns: 120, rows: 40))
+        try await controller.resizeTerminal(to: TerminalSize(columns: 88, rows: 28))
         try await controller.sendUserText("hello tmux")
         let output = try await reader.value
         let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
+        let size = await transport.currentSize()
 
         try expect(output.contains("tmux attach-session -t 'work'"), "expected controller attach stream")
         try expect(output.contains("switch-client -t 'ops'"), "expected controller switch stream")
         try expect(output.contains("hello tmux"), "expected controller send stream")
+        try expect(size == TerminalSize(columns: 88, rows: 28), "expected controller resize to reach transport")
         try expect(writes == [
             "tmux attach-session -t 'work'\r",
             "\u{02}:switch-client -t 'ops'\r",

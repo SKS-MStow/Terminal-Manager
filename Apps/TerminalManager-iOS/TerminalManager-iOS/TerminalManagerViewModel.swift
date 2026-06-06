@@ -14,6 +14,7 @@ final class TerminalManagerViewModel: ObservableObject {
     @Published var sidecarOpen: Bool
     @Published var tmuxDrawerOpen: Bool
     @Published var statusText: String
+    @Published private(set) var terminalSize: TerminalSize
 
     private let runtime: any TerminalAppRuntime
     private var terminalStreamTask: Task<Void, Never>?
@@ -37,6 +38,7 @@ final class TerminalManagerViewModel: ObservableObject {
         self.sidecarOpen = false
         self.tmuxDrawerOpen = false
         self.statusText = "tmux"
+        self.terminalSize = TerminalSize()
         self.runtime = runtime
 
         startTerminalStream()
@@ -63,6 +65,17 @@ final class TerminalManagerViewModel: ObservableObject {
             Task {
                 await refreshTmuxSessions()
             }
+        }
+    }
+
+    func updateTerminalSize(_ size: TerminalSize) {
+        guard size.columns > 0, size.rows > 0, size != terminalSize else {
+            return
+        }
+
+        terminalSize = size
+        Task {
+            await resizeTerminal(to: size)
         }
     }
 
@@ -135,11 +148,22 @@ final class TerminalManagerViewModel: ObservableObject {
     private func attachSelectedSession() async {
         do {
             statusText = "attaching"
-            try await runtime.attach(to: selectedSession, size: TerminalSize(columns: 100, rows: 32))
+            try await runtime.attach(to: selectedSession, size: terminalSize)
             statusText = "\(sessions.count) tmux"
         } catch {
             statusText = "attach failed"
             appendTerminalText("Attach failed: \(error)\n")
+        }
+    }
+
+    private func resizeTerminal(to size: TerminalSize) async {
+        do {
+            try await runtime.resizeTerminal(to: size)
+        } catch TerminalTransportError.notConnected {
+            // The first attach sends the current size. Ignore early geometry
+            // measurements taken before the SSH PTY exists.
+        } catch {
+            appendTerminalText("Resize failed: \(error)\n")
         }
     }
 

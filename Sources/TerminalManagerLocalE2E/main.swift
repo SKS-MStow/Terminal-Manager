@@ -144,13 +144,16 @@ struct TerminalManagerLocalE2E {
         }
 
         try await controller.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
+        try await controller.resizeTerminal(to: TerminalSize(columns: 120, rows: 36))
         try await controller.sendUserText(marker)
 
         let output = try await reader.value
         let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
+        let size = await transport.currentSize()
 
         try expect(output.contains("tmux attach-session -t '\(sessionName)'"), "controller stream did not include attach command")
         try expect(output.contains(marker), "controller stream did not include sent marker")
+        try expect(size == TerminalSize(columns: 120, rows: 36), "controller resize did not update transport size")
         try expect(writes == [
             "tmux attach-session -t '\(sessionName)'\r",
             "\(marker)\r"

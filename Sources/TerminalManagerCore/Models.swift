@@ -40,6 +40,70 @@ public struct TerminalSize: Codable, Equatable, Sendable {
     }
 }
 
+public struct TerminalGridMetrics: Equatable, Sendable {
+    public var terminalSize: TerminalSize
+    public var fontSize: Double
+    public var characterWidth: Double
+    public var lineHeight: Double
+    public var horizontalPadding: Double
+    public var verticalPadding: Double
+
+    public var gridWidth: Double {
+        Double(terminalSize.columns) * characterWidth
+    }
+
+    public var gridHeight: Double {
+        Double(terminalSize.rows) * lineHeight
+    }
+
+    public init(
+        terminalSize: TerminalSize,
+        fontSize: Double,
+        characterWidth: Double,
+        lineHeight: Double,
+        horizontalPadding: Double,
+        verticalPadding: Double
+    ) {
+        self.terminalSize = terminalSize
+        self.fontSize = fontSize
+        self.characterWidth = characterWidth
+        self.lineHeight = lineHeight
+        self.horizontalPadding = horizontalPadding
+        self.verticalPadding = verticalPadding
+    }
+
+    public static func fitting(
+        terminalSize: TerminalSize,
+        availableWidth: Double,
+        availableHeight: Double,
+        minFontSize: Double = 5,
+        maxFontSize: Double = 13,
+        characterAspectRatio: Double = 0.62,
+        lineHeightMultiplier: Double = 1.35,
+        horizontalPadding: Double = 14,
+        verticalPadding: Double = 14
+    ) -> TerminalGridMetrics {
+        let columns = max(1, terminalSize.columns)
+        let rows = max(1, terminalSize.rows)
+        let contentWidth = max(1, availableWidth - horizontalPadding * 2)
+        let contentHeight = max(1, availableHeight - verticalPadding * 2)
+        let widthFontSize = contentWidth / Double(columns) / characterAspectRatio
+        let heightFontSize = contentHeight / Double(rows) / lineHeightMultiplier
+        let fittedFontSize = min(maxFontSize, max(minFontSize, min(widthFontSize, heightFontSize)))
+        let characterWidth = fittedFontSize * characterAspectRatio
+        let lineHeight = fittedFontSize * lineHeightMultiplier
+
+        return TerminalGridMetrics(
+            terminalSize: TerminalSize(columns: columns, rows: rows),
+            fontSize: fittedFontSize,
+            characterWidth: characterWidth,
+            lineHeight: lineHeight,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding
+        )
+    }
+}
+
 public struct TerminalSession: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var hostId: UUID

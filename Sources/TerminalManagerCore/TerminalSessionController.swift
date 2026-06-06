@@ -29,6 +29,10 @@ public final actor TerminalSessionController {
         try await pipeline.sendUserText(text)
     }
 
+    public func resizeTerminal(to size: TerminalSize) async throws {
+        try await pipeline.resizeTerminal(to: size)
+    }
+
     public func uploadAttachmentAndSendReference(
         _ attachment: PendingAttachment,
         using uploader: any AttachmentUploader
