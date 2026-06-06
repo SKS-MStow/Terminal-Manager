@@ -12,7 +12,7 @@ enum PreviewFixtures {
     static let sessions: [TerminalSession] = [
         TerminalSession(
             hostId: host.id,
-            tmuxSessionName: "codex-terminal-manager",
+            tmuxSessionName: "terminal-manager",
             windowIndex: 0,
             paneId: "%1",
             title: "Terminal Manager",
@@ -27,7 +27,7 @@ enum PreviewFixtures {
         ),
         TerminalSession(
             hostId: host.id,
-            tmuxSessionName: "codex-sks-submissions",
+            tmuxSessionName: "sks-submissions",
             windowIndex: 1,
             paneId: "%2",
             title: "SKS Submissions",
@@ -37,7 +37,7 @@ enum PreviewFixtures {
         ),
         TerminalSession(
             hostId: host.id,
-            tmuxSessionName: "shell-admin",
+            tmuxSessionName: "mac-admin",
             windowIndex: 0,
             paneId: "%3",
             title: "Mac Admin",
@@ -48,14 +48,16 @@ enum PreviewFixtures {
     ]
 
     static let terminalLines = [
-        "mark@Marks-MacBook-Air Terminal-Manager % tmux attach -t codex-terminal-manager",
+        "mark@Marks-MacBook-Air Terminal-Manager % tmux attach -t terminal-manager",
         "",
-        "codex",
-        "> continue implementing terminal manager",
+        "Terminal Manager",
         "",
-        "- reading Swift package and iOS shell",
-        "- updating transcript compaction",
-        "- running tmux E2E checks",
+        "tmux sessions stay as the source of truth.",
+        "Open the tmux drawer to jump between sessions without losing the terminal.",
+        "",
+        "- terminal-manager",
+        "- sks-submissions",
+        "- mac-admin",
         "",
         "Terminal Manager local tmux E2E passed",
         "Terminal Manager self-check passed",

@@ -52,6 +52,7 @@ struct TerminalManagerLocalE2E {
             try expect(writes.first == "tmux attach-session -t '\(sessionName)'\r", "pipeline did not emit expected attach command")
             try expect(writes.last == "~/TerminalManager/attachments/\(sessionName)/e2e-photo.png\r", "pipeline did not emit expected uploaded attachment path")
 
+            try await checkControllerRuntime(host: host, shell: shell, sessionName: sessionName)
             try await checkShellProcessTransport(host: host)
             try await checkEnvGatedOpenSSH()
             try await cleanupTmuxSession(named: escapedName, shell: shell)
@@ -113,6 +114,47 @@ struct TerminalManagerLocalE2E {
 
         let output = try await reader.value
         try expect(output.contains(marker), "shell process transport did not stream marker")
+    }
+
+    private static func checkControllerRuntime(host: HostProfile, shell: LocalShell, sessionName: String) async throws {
+        let transport = RecordingTerminalTransport()
+        let controller = TerminalSessionController(
+            pipeline: TerminalPipeline(
+                host: host,
+                tmux: TmuxService(shell: shell),
+                transport: transport
+            )
+        )
+        let stream = controller.screenBytes()
+        let marker = "terminal-manager-controller-e2e"
+        let reader = Task<String, Error> {
+            var collected = ""
+            for try await chunk in stream {
+                collected += String(data: chunk, encoding: .utf8) ?? ""
+                if collected.contains(marker) {
+                    return collected
+                }
+            }
+            return collected
+        }
+
+        let snapshot = try await controller.discoverSessions()
+        guard let session = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == sessionName }) else {
+            throw LocalE2EFailure.assertion("controller did not discover temporary tmux session")
+        }
+
+        try await controller.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
+        try await controller.sendUserText(marker)
+
+        let output = try await reader.value
+        let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
+
+        try expect(output.contains("tmux attach-session -t '\(sessionName)'"), "controller stream did not include attach command")
+        try expect(output.contains(marker), "controller stream did not include sent marker")
+        try expect(writes == [
+            "tmux attach-session -t '\(sessionName)'\r",
+            "\(marker)\r"
+        ], "controller did not emit expected writes")
     }
 
     private static func checkAttachmentUpload(
