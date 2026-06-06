@@ -11,36 +11,29 @@ struct TerminalDashboardView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                ZStack(alignment: .trailing) {
-                    appBody
-                        .background(AppColor.background)
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                appBody
+                    .background(AppColor.background)
 
-                    if compactLayout, viewModel.sidecarOpen {
-                        SidecarPanel(cards: viewModel.sidecarCards)
-                            .frame(width: compactSidecarWidth(in: geometry.size.width))
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                            .shadow(color: .black.opacity(0.35), radius: 18, x: -8, y: 0)
-                    }
-                }
-            }
-            .navigationTitle("Terminal Manager")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HostStatusView(host: viewModel.host)
+                if viewModel.sidecarOpen {
+                    SidecarPanel(cards: viewModel.sidecarCards)
+                        .frame(width: sidecarWidth(in: geometry.size.width))
+                        .frame(maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .shadow(color: .black.opacity(0.35), radius: 18, x: -8, y: 0)
                 }
 
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation(.snappy) {
-                            viewModel.toggleSidecar()
-                        }
-                    } label: {
-                        Image(systemName: viewModel.sidecarOpen ? "sidebar.right" : "sidebar.right")
-                    }
-                    .accessibilityLabel("AI sidecar")
+                if viewModel.tmuxDrawerOpen {
+                    TmuxSessionDrawer(
+                        sessions: viewModel.sessions,
+                        selectedSession: viewModel.selectedSession,
+                        onSelect: viewModel.select
+                    )
+                    .frame(maxHeight: drawerHeight(in: geometry.size.height))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .shadow(color: .black.opacity(0.42), radius: 22, x: 0, y: -8)
                 }
             }
         }
@@ -49,57 +42,110 @@ struct TerminalDashboardView: View {
 
     @ViewBuilder
     private var appBody: some View {
-        if compactLayout {
-            VStack(spacing: 0) {
-                SessionStrip(
-                    sessions: viewModel.sessions,
-                    selectedSession: viewModel.selectedSession,
-                    onSelect: viewModel.select
-                )
-                TerminalWorkspace(
-                    viewModel: viewModel
-                )
-            }
-        } else {
-            HStack(spacing: 0) {
-                SessionSidebar(
-                    sessions: viewModel.sessions,
-                    selectedSession: viewModel.selectedSession,
-                    onSelect: viewModel.select
-                )
-                    .frame(width: 280)
-
-                TerminalWorkspace(
-                    viewModel: viewModel
-                )
-
-                if viewModel.sidecarOpen {
-                    SidecarPanel(cards: viewModel.sidecarCards)
-                        .frame(width: 340)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+        VStack(spacing: 0) {
+            AppTopBar(
+                host: viewModel.host,
+                statusText: viewModel.statusText,
+                session: viewModel.selectedSession,
+                sessionCount: viewModel.sessions.count,
+                onShowSessions: {
+                    withAnimation(.snappy) {
+                        viewModel.toggleTmuxDrawer()
+                    }
+                },
+                onToggleSidecar: {
+                    withAnimation(.snappy) {
+                        viewModel.toggleSidecar()
+                    }
                 }
-            }
+            )
+
+            TerminalWorkspace(viewModel: viewModel)
         }
     }
 
-    private func compactSidecarWidth(in containerWidth: CGFloat) -> CGFloat {
-        min(324, max(260, containerWidth - 32))
+    private func sidecarWidth(in containerWidth: CGFloat) -> CGFloat {
+        let regularWidth: CGFloat = compactLayout ? 324 : 380
+        return min(regularWidth, max(260, containerWidth - 32))
+    }
+
+    private func drawerHeight(in containerHeight: CGFloat) -> CGFloat {
+        min(compactLayout ? 360 : 420, max(260, containerHeight * 0.48))
+    }
+}
+
+private struct AppTopBar: View {
+    var host: HostProfile
+    var statusText: String
+    var session: TerminalSession
+    var sessionCount: Int
+    var onShowSessions: () -> Void
+    var onToggleSidecar: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HostStatusView(host: host, statusText: statusText)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppColor.primaryText)
+                    .lineLimit(1)
+                Text(session.tmuxSessionName)
+                    .font(.caption2)
+                    .foregroundStyle(AppColor.secondaryText)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                withAnimation(.snappy) {
+                    onShowSessions()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.stack.fill")
+                    Text("\(sessionCount)")
+                        .font(.caption.weight(.bold))
+                }
+                .frame(height: 34)
+                .padding(.horizontal, 10)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppColor.primaryText)
+            .background(AppColor.elevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("tmux sessions")
+
+            Button(action: onToggleSidecar) {
+                Image(systemName: "sparkles.rectangle.stack")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppColor.primaryText)
+            .accessibilityLabel("AI sidecar")
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 50)
+        .background(AppColor.header)
     }
 }
 
 private struct HostStatusView: View {
     var host: HostProfile
+    var statusText: String
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(AppColor.online)
                 .frame(width: 8, height: 8)
-            Text(host.preferredTransport.rawValue.uppercased())
+            Text(statusText.uppercased())
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppColor.secondaryText)
         }
-        .accessibilityLabel("\(host.displayName), \(host.preferredTransport.rawValue)")
+        .accessibilityLabel("\(host.displayName), \(statusText)")
     }
 }
 
@@ -217,11 +263,6 @@ private struct TerminalWorkspace: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalHeader(session: viewModel.selectedSession) {
-                withAnimation(.snappy) {
-                    viewModel.toggleSidecar()
-                }
-            }
             TerminalSurface(lines: viewModel.terminalLines)
             ComposerBar(
                 text: $viewModel.composerText,
@@ -239,6 +280,8 @@ private struct TerminalWorkspace: View {
 
 private struct TerminalHeader: View {
     var session: TerminalSession
+    var sessionCount: Int
+    var onShowSessions: () -> Void
     var onToggleSidecar: () -> Void
 
     var body: some View {
@@ -258,6 +301,21 @@ private struct TerminalHeader: View {
 
             Spacer()
 
+            Button(action: onShowSessions) {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.stack.fill")
+                    Text("\(sessionCount)")
+                        .font(.caption.weight(.bold))
+                }
+                .frame(height: 36)
+                .padding(.horizontal, 10)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppColor.primaryText)
+            .background(AppColor.elevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("tmux sessions")
+
             Button(action: onToggleSidecar) {
                 Image(systemName: "sparkles.rectangle.stack")
                     .frame(width: 36, height: 36)
@@ -269,6 +327,47 @@ private struct TerminalHeader: View {
         .padding(.horizontal, 14)
         .frame(height: 54)
         .background(AppColor.header)
+    }
+}
+
+private struct TmuxSessionDrawer: View {
+    var sessions: [TerminalSession]
+    var selectedSession: TerminalSession
+    var onSelect: (TerminalSession) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.stack.fill")
+                    .foregroundStyle(AppColor.accent)
+                Text("tmux")
+                    .font(.headline)
+                    .foregroundStyle(AppColor.primaryText)
+                Text("\(sessions.count)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppColor.inverseText)
+                    .frame(minWidth: 22, minHeight: 22)
+                    .background(AppColor.accent)
+                    .clipShape(Capsule())
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(sessions) { session in
+                        SessionRow(session: session, selected: session.id == selectedSession.id) {
+                            onSelect(session)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 18)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(AppColor.surface)
     }
 }
 

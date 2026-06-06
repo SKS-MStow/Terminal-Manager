@@ -26,6 +26,7 @@ struct TerminalManagerSelfCheck {
         try await checkAttachmentUpload()
         try await checkRecordingTransport()
         try await checkTerminalPipelineE2E()
+        try await checkTerminalSessionController()
         try checkOpenSSHArguments()
         try checkSSHAuthPolicy()
         print("Terminal Manager self-check passed")
@@ -316,6 +317,53 @@ struct TerminalManagerSelfCheck {
             "continue\r",
             "~/TerminalManager/attachments/codex-sks/screen-shot.png\r"
         ], "expected E2E terminal writes")
+    }
+
+    private static func checkTerminalSessionController() async throws {
+        let host = HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark")
+        let shell = StubRemoteShell(responses: [
+            "tmux list-sessions -F '#S\t#{session_windows}\t#{session_attached}'": RemoteCommandResult(
+                exitCode: 0,
+                stdout: "work\t1\t0\n"
+            ),
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
+                exitCode: 0,
+                stdout: "work\t0\t%4\tWork\tzsh\t/Users/mark\n"
+            )
+        ])
+        let transport = RecordingTerminalTransport()
+        let controller = TerminalSessionController(
+            pipeline: TerminalPipeline(
+                host: host,
+                tmux: TmuxService(shell: shell),
+                transport: transport
+            )
+        )
+        let stream = controller.screenBytes()
+        let reader = Task<String, Error> {
+            var collected = ""
+            for try await chunk in stream {
+                collected += String(data: chunk, encoding: .utf8) ?? ""
+                if collected.contains("hello tmux") {
+                    return collected
+                }
+            }
+            return collected
+        }
+
+        let snapshot = try await controller.discoverSessions()
+        guard let session = snapshot.terminalSessions.first else {
+            throw SelfCheckFailure.assertion("expected controller session")
+        }
+
+        try await controller.attach(to: session, size: TerminalSize(columns: 120, rows: 40))
+        try await controller.sendUserText("hello tmux")
+        let output = try await reader.value
+        let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
+
+        try expect(output.contains("tmux attach-session -t 'work'"), "expected controller attach stream")
+        try expect(output.contains("hello tmux"), "expected controller send stream")
+        try expect(writes == ["tmux attach-session -t 'work'\r", "hello tmux\r"], "expected controller writes")
     }
 
     private static func checkOpenSSHArguments() throws {

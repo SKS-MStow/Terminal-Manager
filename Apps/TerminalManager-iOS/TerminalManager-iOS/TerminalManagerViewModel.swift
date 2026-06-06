@@ -12,6 +12,11 @@ final class TerminalManagerViewModel: ObservableObject {
     @Published var pendingAttachments: [PendingAttachment]
     @Published var composerText: String
     @Published var sidecarOpen: Bool
+    @Published var tmuxDrawerOpen: Bool
+    @Published var statusText: String
+
+    private let runtime: any TerminalAppRuntime
+    private var terminalStreamTask: Task<Void, Never>?
 
     init(
         host: HostProfile = PreviewFixtures.host,
@@ -19,7 +24,8 @@ final class TerminalManagerViewModel: ObservableObject {
         selectedSession: TerminalSession? = nil,
         terminalLines: [String] = PreviewFixtures.terminalLines,
         sidecarCards: [CompactedAgentActivityCard] = PreviewFixtures.sidecarCards,
-        pendingAttachments: [PendingAttachment] = []
+        pendingAttachments: [PendingAttachment] = [],
+        runtime: any TerminalAppRuntime = FixtureTerminalAppRuntime()
     ) {
         self.host = host
         self.sessions = sessions
@@ -28,15 +34,31 @@ final class TerminalManagerViewModel: ObservableObject {
         self.sidecarCards = sidecarCards
         self.pendingAttachments = pendingAttachments
         self.composerText = ""
-        self.sidecarOpen = true
+        self.sidecarOpen = false
+        self.tmuxDrawerOpen = false
+        self.statusText = "tmux"
+        self.runtime = runtime
+
+        startTerminalStream()
+        Task {
+            await bootstrapRuntime()
+        }
     }
 
     func select(_ session: TerminalSession) {
         selectedSession = session
+        tmuxDrawerOpen = false
+        Task {
+            await attachSelectedSession()
+        }
     }
 
     func toggleSidecar() {
         sidecarOpen.toggle()
+    }
+
+    func toggleTmuxDrawer() {
+        tmuxDrawerOpen.toggle()
     }
 
     func sendComposerText() {
@@ -45,8 +67,10 @@ final class TerminalManagerViewModel: ObservableObject {
             return
         }
 
-        terminalLines.append("> \(trimmed)")
         composerText = ""
+        Task {
+            await sendToTerminal(trimmed)
+        }
     }
 
     func queuePlaceholderAttachment(kind: AttachmentKind) {
@@ -65,6 +89,81 @@ final class TerminalManagerViewModel: ObservableObject {
             kind: kind
         )
         pendingAttachments.append(attachment)
+    }
+
+    private func bootstrapRuntime() async {
+        do {
+            let bootstrap = try await runtime.bootstrap()
+            host = bootstrap.host
+            sessions = bootstrap.sessions
+            selectedSession = bootstrap.selectedSession
+            terminalLines = bootstrap.terminalLines
+            sidecarCards = bootstrap.sidecarCards
+            statusText = "\(bootstrap.sessions.count) tmux"
+            await attachSelectedSession()
+        } catch {
+            statusText = "offline"
+            appendTerminalText("Terminal Manager runtime failed: \(error)\n")
+        }
+    }
+
+    private func attachSelectedSession() async {
+        do {
+            statusText = "attaching"
+            try await runtime.attach(to: selectedSession, size: TerminalSize(columns: 100, rows: 32))
+            statusText = "\(sessions.count) tmux"
+        } catch {
+            statusText = "attach failed"
+            appendTerminalText("Attach failed: \(error)\n")
+        }
+    }
+
+    private func sendToTerminal(_ text: String) async {
+        do {
+            try await runtime.sendUserText(text)
+        } catch {
+            appendTerminalText("Send failed: \(error)\n")
+        }
+    }
+
+    private func startTerminalStream() {
+        terminalStreamTask?.cancel()
+        terminalStreamTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                for try await text in self.runtime.terminalTextStream() {
+                    await MainActor.run {
+                        self.appendTerminalText(text)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.appendTerminalText("Terminal stream ended: \(error)\n")
+                }
+            }
+        }
+    }
+
+    private func appendTerminalText(_ text: String) {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let incoming = normalized
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.isEmpty }
+
+        guard !incoming.isEmpty else {
+            return
+        }
+
+        terminalLines.append(contentsOf: incoming)
+        if terminalLines.count > 1_000 {
+            terminalLines.removeFirst(terminalLines.count - 1_000)
+        }
     }
 
     private static func placeholderSession(for host: HostProfile) -> TerminalSession {

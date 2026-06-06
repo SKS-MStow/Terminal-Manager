@@ -110,6 +110,14 @@ public final class TerminalPipeline: Sendable {
         try await transport.resize(to: size)
     }
 
+    public func screenBytes() -> AsyncThrowingStream<Data, Error> {
+        transport.screenBytes()
+    }
+
+    public func disconnect() async {
+        await transport.disconnect()
+    }
+
     public func capturedHistory(for session: TerminalSession, lineCount: Int = 5_000) async throws -> String {
         guard let paneId = session.paneId else {
             return ""
