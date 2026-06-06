@@ -53,6 +53,8 @@ public final class TerminalPipeline: Sendable {
                 hostId: host.id,
                 tmuxSessionName: tmuxSession.name,
                 windowIndex: pane?.windowIndex,
+                windowCount: tmuxSession.windowCount,
+                attachedCount: tmuxSession.attachedCount,
                 paneId: pane?.paneId,
                 title: Self.title(for: tmuxSession, pane: pane),
                 workingDirectory: pane?.currentPath,

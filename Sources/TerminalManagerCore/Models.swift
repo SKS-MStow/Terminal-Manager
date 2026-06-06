@@ -109,6 +109,8 @@ public struct TerminalSession: Identifiable, Codable, Equatable, Sendable {
     public var hostId: UUID
     public var tmuxSessionName: String
     public var windowIndex: Int?
+    public var windowCount: Int?
+    public var attachedCount: Int?
     public var paneId: String?
     public var title: String
     public var workingDirectory: String?
@@ -121,6 +123,8 @@ public struct TerminalSession: Identifiable, Codable, Equatable, Sendable {
         hostId: UUID,
         tmuxSessionName: String,
         windowIndex: Int? = nil,
+        windowCount: Int? = nil,
+        attachedCount: Int? = nil,
         paneId: String? = nil,
         title: String,
         workingDirectory: String? = nil,
@@ -132,6 +136,8 @@ public struct TerminalSession: Identifiable, Codable, Equatable, Sendable {
         self.hostId = hostId
         self.tmuxSessionName = tmuxSessionName
         self.windowIndex = windowIndex
+        self.windowCount = windowCount
+        self.attachedCount = attachedCount
         self.paneId = paneId
         self.title = title
         self.workingDirectory = workingDirectory

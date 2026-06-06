@@ -339,8 +339,8 @@ private struct SessionRow: View {
                     .foregroundStyle(selected ? AppColor.inverseText.opacity(0.72) : AppColor.secondaryText)
                     .lineLimit(1)
 
-                if let windowIndex = session.windowIndex {
-                    Text("tmux:\(session.tmuxSessionName) window:\(windowIndex)")
+                if !metadataText.isEmpty {
+                    Text(metadataText)
                         .font(.caption2)
                         .foregroundStyle(selected ? AppColor.inverseText.opacity(0.68) : AppColor.secondaryText)
                         .lineLimit(1)
@@ -352,6 +352,23 @@ private struct SessionRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+    }
+
+    private var metadataText: String {
+        var metadata: [String] = []
+        if selected {
+            metadata.append("current")
+        }
+        if let windowIndex = session.windowIndex {
+            metadata.append("window:\(windowIndex)")
+        }
+        if let windowCount = session.windowCount {
+            metadata.append("windows:\(windowCount)")
+        }
+        if let attachedCount = session.attachedCount {
+            metadata.append(attachedCount > 0 ? "attached:\(attachedCount)" : "detached")
+        }
+        return metadata.joined(separator: "  ")
     }
 }
 
