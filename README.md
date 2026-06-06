@@ -43,7 +43,12 @@ executable instead of a Swift test target for now:
 ```sh
 swift build
 swift run terminal-manager-selfcheck
+swift run terminal-manager-local-e2e
 ```
+
+`terminal-manager-local-e2e` is a live smoke test against local `tmux`: it
+creates a temporary session, captures scrollback through `TmuxService`, verifies
+the pipeline attach command, and removes the session.
 
 The iOS app target needs full Xcode selected, not only Command Line Tools:
 

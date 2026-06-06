@@ -49,7 +49,7 @@ public final class TmuxService: Sendable {
     }
 
     public func listSessions() async throws -> [TmuxSession] {
-        let format = "#S\\t#{session_windows}\\t#{session_attached}"
+        let format = "#S\t#{session_windows}\t#{session_attached}"
         let result = try await shell.run("tmux list-sessions -F '\(format)'")
         try Self.throwIfFailed(result, command: "tmux list-sessions")
 
@@ -59,7 +59,7 @@ public final class TmuxService: Sendable {
     }
 
     public func listPanes() async throws -> [TmuxPane] {
-        let format = "#S\\t#I\\t#D\\t#T\\t#{pane_current_command}\\t#{pane_current_path}"
+        let format = "#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}"
         let result = try await shell.run("tmux list-panes -a -F '\(format)'")
         try Self.throwIfFailed(result, command: "tmux list-panes")
 
@@ -82,6 +82,11 @@ public final class TmuxService: Sendable {
     }
 
     public func startAgentSessionCommand(agent: AgentKind, sessionName: String, workingDirectory: String, initialPrompt: String?) -> String {
+        startAgentSessionCommands(agent: agent, sessionName: sessionName, workingDirectory: workingDirectory, initialPrompt: initialPrompt)
+            .joined(separator: " && ")
+    }
+
+    public func startAgentSessionCommands(agent: AgentKind, sessionName: String, workingDirectory: String, initialPrompt: String?) -> [String] {
         let escapedName = Self.singleQuoteEscaped(sessionName)
         let escapedDirectory = Self.singleQuoteEscaped(workingDirectory)
         let agentCommand: String
@@ -94,14 +99,13 @@ public final class TmuxService: Sendable {
         }
 
         let startCommand = "tmux new-session -d -s '\(escapedName)' -c '\(escapedDirectory)' '\(agentCommand)'"
-        let promptCommand: String
+        var commands = [startCommand]
         if let initialPrompt, !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            promptCommand = " ; tmux send-keys -t '\(escapedName)' -- '\(Self.singleQuoteEscaped(initialPrompt))' Enter"
-        } else {
-            promptCommand = ""
+            commands.append("tmux send-keys -t '\(escapedName)' -l -- '\(Self.singleQuoteEscaped(initialPrompt))'")
+            commands.append("tmux send-keys -t '\(escapedName)' Enter")
         }
 
-        return startCommand + promptCommand
+        return commands
     }
 
     private static func parseSessionLine(_ line: Substring) -> TmuxSession? {

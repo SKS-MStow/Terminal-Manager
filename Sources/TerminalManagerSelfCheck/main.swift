@@ -23,12 +23,13 @@ struct TerminalManagerSelfCheck {
         try checkTranscriptCorrelation()
         try checkAttachmentPath()
         try await checkRecordingTransport()
+        try await checkTerminalPipelineE2E()
         print("Terminal Manager self-check passed")
     }
 
     private static func checkTmuxSessionParsing() async throws {
         let shell = StubRemoteShell(responses: [
-            "tmux list-sessions -F '#S\\t#{session_windows}\\t#{session_attached}'": RemoteCommandResult(
+            "tmux list-sessions -F '#S\t#{session_windows}\t#{session_attached}'": RemoteCommandResult(
                 exitCode: 0,
                 stdout: "codex-sks\t2\t1\nclaude-solar\t1\t0\n"
             )
@@ -44,7 +45,7 @@ struct TerminalManagerSelfCheck {
 
     private static func checkTmuxPaneParsing() async throws {
         let shell = StubRemoteShell(responses: [
-            "tmux list-panes -a -F '#S\\t#I\\t#D\\t#T\\t#{pane_current_command}\\t#{pane_current_path}'": RemoteCommandResult(
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
                 exitCode: 0,
                 stdout: "codex-sks\t0\t%1\tEditor\tcodex\t/Users/mark/Github/sks-submissions\n"
             )
@@ -75,27 +76,31 @@ struct TerminalManagerSelfCheck {
             agent: .codex,
             sessionName: "codex-sks",
             workingDirectory: "/Users/mark/Github/sks-submissions",
-            initialPrompt: "fix the bug"
+            initialPrompt: "fix the bug; don't treat C-m as a key"
         )
 
         try expect(command.contains("tmux new-session -d -s 'codex-sks'"), "expected tmux new-session")
         try expect(command.contains("-c '/Users/mark/Github/sks-submissions'"), "expected cwd")
         try expect(command.contains("'codex'"), "expected codex launch")
-        try expect(command.contains("tmux send-keys -t 'codex-sks' -- 'fix the bug' Enter"), "expected prompt send")
+        try expect(command.contains(" && tmux send-keys -t 'codex-sks' -l -- 'fix the bug; don'\\''t treat C-m as a key'"), "expected literal prompt send")
+        try expect(command.hasSuffix(" && tmux send-keys -t 'codex-sks' Enter"), "expected separate enter send")
     }
 
     private static func checkTranscriptParser() throws {
         let lines = [
-            #"{"type":"response_item","role":"assistant","item_type":"message","text":"I can do that."}"#,
-            #"{"type":"response_item","item_type":"tool_call","item":{"name":"exec_command"}}"#,
-            #"{"type":"event_msg","message":"thinking through approach"}"#
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I can do that."}]}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call_output","output":"/Users/mark/Github/Terminal-Manager"}}"#,
+            #"{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"thinking through approach"}]}}"#
         ].joined(separator: "\n")
         let blocks = try CodexTranscriptParser().parse(Data(lines.utf8), agent: .codex)
 
-        try expect(blocks.count == 3, "expected three parsed blocks")
+        try expect(blocks.count == 4, "expected four parsed blocks")
         try expect(blocks[0].kind == .assistantMessage, "expected assistant block")
         try expect(blocks[1].kind == .toolCall, "expected tool block")
-        try expect(blocks[2].kind == .thinking, "expected thinking block")
+        try expect(blocks[1].title == "exec_command", "expected tool title")
+        try expect(blocks[2].kind == .toolCall, "expected tool output block")
+        try expect(blocks[3].kind == .thinking, "expected thinking block")
     }
 
     private static func checkTranscriptCorrelation() throws {
@@ -148,6 +153,57 @@ struct TerminalManagerSelfCheck {
 
         try expect(writes == [Data("hello".utf8)], "expected recorded transport write")
         try expect(size == TerminalSize(columns: 120, rows: 40), "expected transport size")
+    }
+
+    private static func checkTerminalPipelineE2E() async throws {
+        let host = HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark")
+        let shell = StubRemoteShell(responses: [
+            "tmux list-sessions -F '#S\t#{session_windows}\t#{session_attached}'": RemoteCommandResult(
+                exitCode: 0,
+                stdout: "codex-sks\t1\t1\n"
+            ),
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
+                exitCode: 0,
+                stdout: "codex-sks\t0\t%1\tCodex\tcodex\t/Users/mark/Github/Terminal-Manager\n"
+            ),
+            "tmux capture-pane -p -t '%1' -S -100": RemoteCommandResult(
+                exitCode: 0,
+                stdout: "codex thinking\ncodex output\n"
+            )
+        ])
+        let tmux = TmuxService(shell: shell)
+        let transport = RecordingTerminalTransport()
+        let pipeline = TerminalPipeline(host: host, tmux: tmux, transport: transport)
+        let transcript = TranscriptLink(
+            agent: .codex,
+            remotePath: "~/.codex/sessions/rollout.jsonl",
+            confidence: .likely
+        )
+
+        let snapshot = try await pipeline.discoverSessions(transcriptCandidates: [transcript])
+
+        try expect(snapshot.tmuxSessions.count == 1, "expected E2E tmux session")
+        try expect(snapshot.terminalSessions.count == 1, "expected E2E terminal session")
+        let session = snapshot.terminalSessions[0]
+        try expect(session.agent == .codex, "expected codex agent classification")
+        try expect(session.transcript == transcript, "expected transcript correlation")
+
+        try await pipeline.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
+        try await pipeline.sendUserText("continue")
+        let remotePath = try await pipeline.sendAttachmentReference(
+            PendingAttachment(localURL: URL(fileURLWithPath: "/tmp/screen shot.png"), kind: .image),
+            in: session
+        )
+        let history = try await pipeline.capturedHistory(for: session, lineCount: 100)
+        let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
+
+        try expect(remotePath == "~/TerminalManager/attachments/codex-sks/screen-shot.png", "expected E2E attachment path")
+        try expect(history.contains("codex output"), "expected E2E captured history")
+        try expect(writes == [
+            "tmux attach-session -t 'codex-sks'\r",
+            "continue\r",
+            "~/TerminalManager/attachments/codex-sks/screen-shot.png\r"
+        ], "expected E2E terminal writes")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
