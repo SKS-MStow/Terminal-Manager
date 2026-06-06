@@ -19,8 +19,6 @@ Terminal-Manager/
 │   └── TerminalManager-iOS/      # SwiftUI app shell
 ├── Sources/
 │   └── TerminalManagerCore/      # Shared models, tmux service, transcript sidecar
-├── Tests/
-│   └── TerminalManagerCoreTests/
 └── Docs/
 ```
 
@@ -44,6 +42,7 @@ executable instead of a Swift test target for now:
 swift build
 swift run terminal-manager-selfcheck
 swift run terminal-manager-local-e2e
+swift run terminal-manager-citadel-selfcheck
 swift run terminal-manager-ssh-smoke
 ```
 
@@ -68,7 +67,12 @@ The iOS app target needs full Xcode selected, not only Command Line Tools:
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+xcodebuild -version
 ```
+
+After full Xcode is installed and selected, use Mark's Apple Developer team to
+sign a `Terminal Manager` iOS target that includes the app files under
+`Apps/TerminalManager-iOS/TerminalManager-iOS` and links `TerminalManagerCore`.
 
 ## First validation target
 
