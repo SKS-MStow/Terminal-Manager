@@ -73,6 +73,14 @@ xcodebuild -version
 After full Xcode is installed and selected, use Mark's Apple Developer team to
 sign a `Terminal Manager` iOS target that includes the app files under
 `Apps/TerminalManager-iOS/TerminalManager-iOS` and links `TerminalManagerCore`.
+The iOS folder includes an XcodeGen spec:
+
+```sh
+brew install xcodegen
+cd Apps/TerminalManager-iOS
+xcodegen generate
+open TerminalManager.xcodeproj
+```
 
 ## First validation target
 

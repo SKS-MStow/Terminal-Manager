@@ -4,6 +4,7 @@ SwiftUI app shell for Terminal Manager.
 
 Current source files:
 
+- `project.yml`: XcodeGen spec for a real iOS app target.
 - `TerminalManagerIOSApp.swift`: app entry point.
 - `TerminalDashboardView.swift`: session dashboard, black terminal surface, AI sidecar, and composer controls.
 - `TerminalManagerViewModel.swift`: UI state backed by real `TerminalManagerCore` model types.
@@ -16,10 +17,18 @@ workspace generated around these sources.
 Phone-test prerequisites:
 
 ```sh
+brew install xcodegen
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 xcodebuild -version
 ```
 
-Then create or generate an iOS app target named `Terminal Manager`, add these
-Swift files plus `TerminalManagerCore`, select Mark's Apple Developer team, and
-run on the connected iPhone.
+Generate and open the project:
+
+```sh
+cd Apps/TerminalManager-iOS
+xcodegen generate
+open TerminalManager.xcodeproj
+```
+
+In Xcode, select the `Terminal Manager` target, choose Mark's Apple Developer
+team for automatic signing, connect the iPhone, and run the app on the device.
