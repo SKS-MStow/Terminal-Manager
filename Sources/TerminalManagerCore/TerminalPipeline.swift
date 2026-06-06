@@ -95,6 +95,15 @@ public final class TerminalPipeline: Sendable {
         return try await tmux.captureHistory(paneId: paneId, lineCount: lineCount)
     }
 
+    public func compactTranscript(
+        _ data: Data,
+        agent: AgentKind = .codex,
+        parser: any TranscriptParser = CodexTranscriptParser(),
+        compactor: AgentActivityCompactor = AgentActivityCompactor()
+    ) throws -> [CompactedAgentActivityCard] {
+        try compactor.compact(parser.parse(data, agent: agent))
+    }
+
     private func sendLine(_ text: String) async throws {
         try await transport.send(Data((text + "\r").utf8))
     }

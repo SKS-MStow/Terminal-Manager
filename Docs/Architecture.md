@@ -71,7 +71,11 @@ Correlation uses:
 - timestamps,
 - manual link/unlink fallback.
 
-The sidecar emits blocks:
+The sidecar emits raw parsed blocks and compacted cards. Raw parsed blocks preserve
+the transcript detail; compacted cards give the iOS drawer short expandable rows.
+Terminal scrollback is never folded, rewritten, or hidden by this process.
+
+Raw parsed block kinds:
 
 - thinking,
 - tool call,

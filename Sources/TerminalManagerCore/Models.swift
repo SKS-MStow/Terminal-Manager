@@ -135,3 +135,34 @@ public struct AgentActivityBlock: Identifiable, Codable, Equatable, Sendable {
         self.createdAt = createdAt
     }
 }
+
+public struct CompactedAgentActivityCard: Identifiable, Codable, Equatable, Sendable {
+    public var id: UUID
+    public var kind: AgentActivityKind
+    public var title: String
+    public var preview: String
+    public var blockCount: Int
+    public var sourceBlockIds: [UUID]
+    public var metadata: [String: String]
+    public var createdAt: Date?
+
+    public init(
+        id: UUID = UUID(),
+        kind: AgentActivityKind,
+        title: String,
+        preview: String,
+        blockCount: Int,
+        sourceBlockIds: [UUID],
+        metadata: [String: String] = [:],
+        createdAt: Date? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.preview = preview
+        self.blockCount = blockCount
+        self.sourceBlockIds = sourceBlockIds
+        self.metadata = metadata
+        self.createdAt = createdAt
+    }
+}
