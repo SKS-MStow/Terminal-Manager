@@ -39,6 +39,19 @@ struct TerminalDashboardView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $viewModel.connectionSheetOpen) {
+            ConnectionSetupSheet(
+                draft: $viewModel.connectionDraft,
+                statusText: viewModel.connectionStatusText,
+                onSave: {
+                    Task {
+                        await viewModel.saveConnectionAndConnect()
+                    }
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else {
                 return
@@ -62,6 +75,9 @@ struct TerminalDashboardView: View {
                     withAnimation(.snappy) {
                         viewModel.toggleTmuxDrawer()
                     }
+                },
+                onShowConnectionSettings: {
+                    viewModel.openConnectionSettings()
                 },
                 onToggleSidecar: {
                     withAnimation(.snappy) {
@@ -90,6 +106,7 @@ private struct AppTopBar: View {
     var session: TerminalSession
     var sessionCount: Int
     var onShowSessions: () -> Void
+    var onShowConnectionSettings: () -> Void
     var onToggleSidecar: () -> Void
 
     var body: some View {
@@ -128,6 +145,14 @@ private struct AppTopBar: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityLabel("tmux sessions")
 
+            Button(action: onShowConnectionSettings) {
+                Image(systemName: "server.rack")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppColor.primaryText)
+            .accessibilityLabel("SSH connection")
+
             Button(action: onToggleSidecar) {
                 Image(systemName: "sparkles.rectangle.stack")
                     .frame(width: 34, height: 34)
@@ -156,6 +181,61 @@ private struct HostStatusView: View {
                 .foregroundStyle(AppColor.secondaryText)
         }
         .accessibilityLabel("\(host.displayName), \(statusText)")
+    }
+}
+
+private struct ConnectionSetupSheet: View {
+    @Binding var draft: SavedSSHConnectionDraft
+    var statusText: String
+    var onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("SSH") {
+                    TextField("Display name", text: $draft.displayName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Host", text: $draft.hostname)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    HStack {
+                        TextField("Username", text: $draft.username)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Port", text: $draft.port)
+                            .keyboardType(.numberPad)
+                            .frame(width: 72)
+                    }
+                    SecureField("Password", text: $draft.password)
+                        .textContentType(.password)
+                }
+
+                Section("Host Key") {
+                    Toggle("Allow local/dev unsafe host key", isOn: $draft.allowUnsafeHostKeyPolicy)
+                    Text("Required until pinned or known-host validation is implemented in the Citadel bridge.")
+                        .font(.caption)
+                        .foregroundStyle(AppColor.secondaryText)
+                }
+
+                Section {
+                    Button(action: onSave) {
+                        HStack {
+                            Image(systemName: "bolt.horizontal.fill")
+                            Text("Save & Connect")
+                        }
+                    }
+                    .disabled(!draft.allowUnsafeHostKeyPolicy)
+                } footer: {
+                    Text(statusText)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(AppColor.background)
+            .navigationTitle("SSH Connection")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .preferredColorScheme(.dark)
     }
 }
 

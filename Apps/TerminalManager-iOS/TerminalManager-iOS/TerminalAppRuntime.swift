@@ -20,9 +20,22 @@ protocol TerminalAppRuntime: Sendable {
 }
 
 enum TerminalAppRuntimeFactory {
-    static func makeDefaultRuntime(environment: [String: String] = ProcessInfo.processInfo.environment) -> any TerminalAppRuntime {
+    static func makeDefaultRuntime(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        connectionStore: SavedSSHConnectionStore = .shared
+    ) -> any TerminalAppRuntime {
         if let configuration = LiveSSHTerminalAppRuntime.Configuration(environment: environment) {
-            return LiveSSHTerminalAppRuntime(configuration: configuration)
+            return LiveSSHTerminalAppRuntime(
+                configuration: configuration,
+                passwordProvider: StaticCitadelPasswordProvider(password: configuration.inlinePassword ?? "")
+            )
+        }
+
+        if let savedConnection = connectionStore.load() {
+            return LiveSSHTerminalAppRuntime(
+                configuration: LiveSSHTerminalAppRuntime.Configuration(savedConnection: savedConnection),
+                passwordProvider: KeychainPasswordProvider()
+            )
         }
 
         return FixtureTerminalAppRuntime()
@@ -41,7 +54,9 @@ private struct StaticCitadelPasswordProvider: CitadelPasswordProvider {
 final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
     struct Configuration: Sendable, Equatable {
         var host: HostProfile
-        var password: String
+        var passwordService: String
+        var passwordAccount: String
+        var inlinePassword: String?
         var allowUnsafeHostKeyPolicy: Bool
 
         init?(
@@ -79,27 +94,37 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
                 username: username,
                 preferredTransport: .ssh
             )
-            self.password = password
+            self.passwordService = "TerminalManagerLiveSSH"
+            self.passwordAccount = "\(username)@\(hostname)"
+            self.inlinePassword = password
             self.allowUnsafeHostKeyPolicy = allowUnsafeHostKeyPolicy
+        }
+
+        init(savedConnection: SavedSSHConnection) {
+            self.host = savedConnection.host
+            self.passwordService = SavedSSHConnectionStore.passwordService
+            self.passwordAccount = SavedSSHConnectionStore.passwordAccount(for: savedConnection.host)
+            self.inlinePassword = nil
+            self.allowUnsafeHostKeyPolicy = savedConnection.allowUnsafeHostKeyPolicy
         }
     }
 
     private let configuration: Configuration
     private let controller: TerminalSessionController
 
-    init(configuration: Configuration) {
+    init(configuration: Configuration, passwordProvider: any CitadelPasswordProvider) {
         self.configuration = configuration
         let profile = SSHConnectionProfile(
             host: configuration.host,
             authentication: .passwordKeychain(
-                service: "TerminalManagerLiveSSH",
-                account: "\(configuration.host.username)@\(configuration.host.hostname)"
+                service: configuration.passwordService,
+                account: configuration.passwordAccount
             ),
             hostKeyPolicy: configuration.allowUnsafeHostKeyPolicy ? .acceptAnyForSmokeOnly : .knownHosts
         )
         let factory = CitadelConnectionFactory(
             allowUnsafeHostKeyPolicy: configuration.allowUnsafeHostKeyPolicy,
-            passwordProvider: StaticCitadelPasswordProvider(password: configuration.password)
+            passwordProvider: passwordProvider
         )
         self.controller = TerminalSessionController(
             pipeline: TerminalPipeline(

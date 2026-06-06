@@ -15,8 +15,12 @@ final class TerminalManagerViewModel: ObservableObject {
     @Published var tmuxDrawerOpen: Bool
     @Published var statusText: String
     @Published private(set) var terminalSize: TerminalSize
+    @Published var connectionSheetOpen: Bool
+    @Published var connectionDraft: SavedSSHConnectionDraft
+    @Published var connectionStatusText: String
 
-    private let runtime: any TerminalAppRuntime
+    private var runtime: any TerminalAppRuntime
+    private let connectionStore: SavedSSHConnectionStore
     private var terminalStreamTask: Task<Void, Never>?
 
     init(
@@ -26,8 +30,10 @@ final class TerminalManagerViewModel: ObservableObject {
         terminalLines: [String] = PreviewFixtures.terminalLines,
         sidecarCards: [CompactedAgentActivityCard] = PreviewFixtures.sidecarCards,
         pendingAttachments: [PendingAttachment] = [],
-        runtime: any TerminalAppRuntime = TerminalAppRuntimeFactory.makeDefaultRuntime()
+        connectionStore: SavedSSHConnectionStore = .shared,
+        runtime: (any TerminalAppRuntime)? = nil
     ) {
+        self.connectionStore = connectionStore
         self.host = host
         self.sessions = sessions
         self.selectedSession = selectedSession ?? sessions.first ?? Self.placeholderSession(for: host)
@@ -39,7 +45,12 @@ final class TerminalManagerViewModel: ObservableObject {
         self.tmuxDrawerOpen = false
         self.statusText = "tmux"
         self.terminalSize = TerminalSize()
-        self.runtime = runtime
+        self.connectionSheetOpen = false
+        self.connectionDraft = connectionStore.load().map { saved in
+            SavedSSHConnectionDraft(saved: saved, password: (try? connectionStore.loadPassword(for: saved)) ?? "")
+        } ?? SavedSSHConnectionDraft()
+        self.connectionStatusText = "Saved SSH overrides the demo fixture. Env smoke settings still win."
+        self.runtime = runtime ?? TerminalAppRuntimeFactory.makeDefaultRuntime(connectionStore: connectionStore)
 
         startTerminalStream()
         Task {
@@ -76,6 +87,33 @@ final class TerminalManagerViewModel: ObservableObject {
         terminalSize = size
         Task {
             await resizeTerminal(to: size)
+        }
+    }
+
+    func openConnectionSettings() {
+        if let saved = connectionStore.load() {
+            connectionDraft = SavedSSHConnectionDraft(
+                saved: saved,
+                password: (try? connectionStore.loadPassword(for: saved)) ?? ""
+            )
+            connectionStatusText = "Saved profile: \(saved.username)@\(saved.hostname):\(saved.port)"
+        } else {
+            connectionDraft = SavedSSHConnectionDraft()
+            connectionStatusText = "Add one SSH host. tmux sessions are discovered after connect."
+        }
+        connectionSheetOpen = true
+    }
+
+    func saveConnectionAndConnect() async {
+        do {
+            let saved = try connectionStore.save(connectionDraft)
+            connectionSheetOpen = false
+            terminalLines = ["Connecting to \(saved.username)@\(saved.hostname):\(saved.port) ..."]
+            statusText = "connecting"
+            rebuildRuntime()
+            await bootstrapRuntime()
+        } catch {
+            connectionStatusText = Self.connectionMessage(for: error)
         }
     }
 
@@ -143,6 +181,12 @@ final class TerminalManagerViewModel: ObservableObject {
             statusText = "offline"
             appendTerminalText("Terminal Manager runtime failed: \(error)\n")
         }
+    }
+
+    private func rebuildRuntime() {
+        terminalStreamTask?.cancel()
+        runtime = TerminalAppRuntimeFactory.makeDefaultRuntime(connectionStore: connectionStore)
+        startTerminalStream()
     }
 
     private func attachSelectedSession() async {
@@ -222,5 +266,26 @@ final class TerminalManagerViewModel: ObservableObject {
             title: "No Session",
             workingDirectory: nil
         )
+    }
+
+    private static func connectionMessage(for error: Error) -> String {
+        switch error {
+        case SavedSSHConnectionStoreError.missingHostname:
+            return "Host is required."
+        case SavedSSHConnectionStoreError.missingUsername:
+            return "Username is required."
+        case SavedSSHConnectionStoreError.invalidPort:
+            return "Port must be between 1 and 65535."
+        case SavedSSHConnectionStoreError.missingPassword:
+            return "Password is required for the current Citadel SSH bridge."
+        case SavedSSHConnectionStoreError.keychainReadFailed(let status):
+            return "Could not read password from Keychain (\(status))."
+        case SavedSSHConnectionStoreError.keychainWriteFailed(let status):
+            return "Could not save password to Keychain (\(status))."
+        case SavedSSHConnectionStoreError.keychainDeleteFailed(let status):
+            return "Could not delete password from Keychain (\(status))."
+        default:
+            return "Connection setup failed: \(error)"
+        }
     }
 }
