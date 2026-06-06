@@ -21,6 +21,7 @@ final class TerminalManagerViewModel: ObservableObject {
 
     private var runtime: any TerminalAppRuntime
     private let connectionStore: SavedSSHConnectionStore
+    private var terminalBuffer: TerminalScrollbackBuffer
     private var terminalStreamTask: Task<Void, Never>?
 
     init(
@@ -38,6 +39,7 @@ final class TerminalManagerViewModel: ObservableObject {
         self.sessions = sessions
         self.selectedSession = selectedSession ?? sessions.first ?? Self.placeholderSession(for: host)
         self.terminalLines = terminalLines
+        self.terminalBuffer = TerminalScrollbackBuffer(lines: terminalLines)
         self.sidecarCards = sidecarCards
         self.pendingAttachments = pendingAttachments
         self.composerText = ""
@@ -108,7 +110,7 @@ final class TerminalManagerViewModel: ObservableObject {
         do {
             let saved = try connectionStore.save(connectionDraft)
             connectionSheetOpen = false
-            terminalLines = ["Connecting to \(saved.username)@\(saved.hostname):\(saved.port) ..."]
+            resetTerminalLines(["Connecting to \(saved.username)@\(saved.hostname):\(saved.port) ..."])
             statusText = "connecting"
             rebuildRuntime()
             await bootstrapRuntime()
@@ -175,7 +177,7 @@ final class TerminalManagerViewModel: ObservableObject {
             host = bootstrap.host
             sessions = bootstrap.sessions
             selectedSession = bootstrap.selectedSession
-            terminalLines = bootstrap.terminalLines
+            resetTerminalLines(bootstrap.terminalLines)
             sidecarCards = bootstrap.sidecarCards
             statusText = "\(bootstrap.sessions.count) tmux"
             await attachSelectedSession()
@@ -243,22 +245,13 @@ final class TerminalManagerViewModel: ObservableObject {
     }
 
     private func appendTerminalText(_ text: String) {
-        let normalized = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let incoming = normalized
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { !$0.isEmpty }
+        terminalBuffer.append(text)
+        terminalLines = terminalBuffer.lines
+    }
 
-        guard !incoming.isEmpty else {
-            return
-        }
-
-        terminalLines.append(contentsOf: incoming)
-        if terminalLines.count > 1_000 {
-            terminalLines.removeFirst(terminalLines.count - 1_000)
-        }
+    private func resetTerminalLines(_ lines: [String]) {
+        terminalBuffer.reset(lines: lines)
+        terminalLines = terminalBuffer.lines
     }
 
     private static func placeholderSession(for host: HostProfile) -> TerminalSession {

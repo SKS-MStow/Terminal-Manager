@@ -25,6 +25,7 @@ struct TerminalManagerSelfCheck {
         try checkAttachmentPath()
         try await checkAttachmentUpload()
         try await checkRecordingTransport()
+        try checkTerminalScrollbackBuffer()
         try checkTerminalGridMetrics()
         try await checkTerminalPipelineE2E()
         try await checkTerminalSessionController()
@@ -280,6 +281,24 @@ struct TerminalManagerSelfCheck {
         try expect(metrics.fontSize < 13, "expected iPhone-width grid to reduce font size")
         try expect(metrics.gridWidth + metrics.horizontalPadding * 2 <= 390.01, "expected 100 columns to fit available width")
         try expect(metrics.gridHeight + metrics.verticalPadding * 2 <= 620.01, "expected 32 rows to fit available height")
+    }
+
+    private static func checkTerminalScrollbackBuffer() throws {
+        var redraw = TerminalScrollbackBuffer()
+        redraw.append("progress 10%")
+        redraw.append("\rprogress 20%")
+        try expect(redraw.lines == ["progress 20%"], "expected carriage return to redraw current line")
+
+        redraw.append("\r\u{1B}[2Kdone")
+        try expect(redraw.lines == ["done"], "expected ANSI clear-line sequence to be handled")
+
+        var cursor = TerminalScrollbackBuffer()
+        cursor.append("abcdef\u{1B}[3DXYZ")
+        try expect(cursor.lines == ["abcXYZ"], "expected CSI cursor-left overwrite to be handled")
+
+        var scrollback = TerminalScrollbackBuffer(maxLineCount: 3)
+        scrollback.append("one\ntwo\nthree\nfour")
+        try expect(scrollback.lines == ["two", "three", "four"], "expected scrollback to stay bounded")
     }
 
     private static func checkTerminalPipelineE2E() async throws {
