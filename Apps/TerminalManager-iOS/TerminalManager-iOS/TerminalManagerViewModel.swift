@@ -16,14 +16,14 @@ final class TerminalManagerViewModel: ObservableObject {
     init(
         host: HostProfile = PreviewFixtures.host,
         sessions: [TerminalSession] = PreviewFixtures.sessions,
-        selectedSession: TerminalSession = PreviewFixtures.sessions[0],
+        selectedSession: TerminalSession? = nil,
         terminalLines: [String] = PreviewFixtures.terminalLines,
         sidecarCards: [CompactedAgentActivityCard] = PreviewFixtures.sidecarCards,
         pendingAttachments: [PendingAttachment] = []
     ) {
         self.host = host
         self.sessions = sessions
-        self.selectedSession = selectedSession
+        self.selectedSession = selectedSession ?? sessions.first ?? Self.placeholderSession(for: host)
         self.terminalLines = terminalLines
         self.sidecarCards = sidecarCards
         self.pendingAttachments = pendingAttachments
@@ -65,5 +65,14 @@ final class TerminalManagerViewModel: ObservableObject {
             kind: kind
         )
         pendingAttachments.append(attachment)
+    }
+
+    private static func placeholderSession(for host: HostProfile) -> TerminalSession {
+        TerminalSession(
+            hostId: host.id,
+            tmuxSessionName: "no-session",
+            title: "No Session",
+            workingDirectory: nil
+        )
     }
 }

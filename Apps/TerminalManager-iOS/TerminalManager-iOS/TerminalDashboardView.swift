@@ -12,15 +12,17 @@ struct TerminalDashboardView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .trailing) {
-                appBody
-                    .background(AppColor.background)
+            GeometryReader { geometry in
+                ZStack(alignment: .trailing) {
+                    appBody
+                        .background(AppColor.background)
 
-                if compactLayout, viewModel.sidecarOpen {
-                    SidecarPanel(cards: viewModel.sidecarCards)
-                        .frame(width: 324)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                        .shadow(color: .black.opacity(0.35), radius: 18, x: -8, y: 0)
+                    if compactLayout, viewModel.sidecarOpen {
+                        SidecarPanel(cards: viewModel.sidecarCards)
+                            .frame(width: compactSidecarWidth(in: geometry.size.width))
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .shadow(color: .black.opacity(0.35), radius: 18, x: -8, y: 0)
+                    }
                 }
             }
             .navigationTitle("Terminal Manager")
@@ -78,6 +80,10 @@ struct TerminalDashboardView: View {
                 }
             }
         }
+    }
+
+    private func compactSidecarWidth(in containerWidth: CGFloat) -> CGFloat {
+        min(324, max(260, containerWidth - 32))
     }
 }
 

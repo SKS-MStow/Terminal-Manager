@@ -22,6 +22,14 @@
 	<string>1</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Terminal Manager uses the camera to attach photos to the active terminal session.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Terminal Manager uses the microphone to record voice notes before sending transcribed text to the terminal.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Terminal Manager uses the photo library to attach selected images to the active terminal session.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Terminal Manager uses speech recognition to transcribe voice notes before sending them to the terminal.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
