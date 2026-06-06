@@ -12,6 +12,7 @@ struct TerminalAppBootstrap: Sendable {
 
 protocol TerminalAppRuntime: Sendable {
     func bootstrap() async throws -> TerminalAppBootstrap
+    func refreshSessions() async throws -> [TerminalSession]
     func attach(to session: TerminalSession, size: TerminalSize) async throws
     func sendUserText(_ text: String) async throws
     func terminalTextStream() -> AsyncThrowingStream<String, Error>
@@ -148,6 +149,10 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
         )
     }
 
+    func refreshSessions() async throws -> [TerminalSession] {
+        try await controller.discoverSessions().terminalSessions
+    }
+
     func attach(to session: TerminalSession, size: TerminalSize) async throws {
         guard !session.tmuxSessionName.isEmpty, session.tmuxSessionName != "no-session" else {
             return
@@ -208,6 +213,11 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
             terminalLines: PreviewFixtures.terminalLines,
             sidecarCards: PreviewFixtures.sidecarCards
         )
+    }
+
+    func refreshSessions() async throws -> [TerminalSession] {
+        let snapshot = try await controller.discoverSessions()
+        return snapshot.terminalSessions.isEmpty ? PreviewFixtures.sessions : snapshot.terminalSessions
     }
 
     func attach(to session: TerminalSession, size: TerminalSize) async throws {

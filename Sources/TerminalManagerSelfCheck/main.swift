@@ -277,7 +277,11 @@ struct TerminalManagerSelfCheck {
             ),
             "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
                 exitCode: 0,
-                stdout: "codex-sks\t0\t%1\tCodex\tcodex\t/Users/mark/Github/Terminal-Manager\n"
+                stdout: """
+                codex-sks\t0\t%1\tCodex\tcodex\t/Users/mark/Github/Terminal-Manager
+                codex-sks\t1\t%2\tLogs\tzsh\t/Users/mark/Github/Terminal-Manager
+
+                """
             ),
             "tmux capture-pane -p -t '%1' -S -100": RemoteCommandResult(
                 exitCode: 0,
@@ -324,11 +328,11 @@ struct TerminalManagerSelfCheck {
         let shell = StubRemoteShell(responses: [
             "tmux list-sessions -F '#S\t#{session_windows}\t#{session_attached}'": RemoteCommandResult(
                 exitCode: 0,
-                stdout: "work\t1\t0\n"
+                stdout: "work\t1\t0\nops\t1\t0\n"
             ),
             "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
                 exitCode: 0,
-                stdout: "work\t0\t%4\tWork\tzsh\t/Users/mark\n"
+                stdout: "work\t0\t%4\tWork\tzsh\t/Users/mark\nops\t0\t%5\tOps\tzsh\t/Users/mark\n"
             )
         ])
         let transport = RecordingTerminalTransport()
@@ -352,18 +356,27 @@ struct TerminalManagerSelfCheck {
         }
 
         let snapshot = try await controller.discoverSessions()
-        guard let session = snapshot.terminalSessions.first else {
-            throw SelfCheckFailure.assertion("expected controller session")
+        guard
+            let session = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == "work" }),
+            let secondSession = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == "ops" })
+        else {
+            throw SelfCheckFailure.assertion("expected controller sessions")
         }
 
         try await controller.attach(to: session, size: TerminalSize(columns: 120, rows: 40))
+        try await controller.attach(to: secondSession, size: TerminalSize(columns: 120, rows: 40))
         try await controller.sendUserText("hello tmux")
         let output = try await reader.value
         let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
 
         try expect(output.contains("tmux attach-session -t 'work'"), "expected controller attach stream")
+        try expect(output.contains("switch-client -t 'ops'"), "expected controller switch stream")
         try expect(output.contains("hello tmux"), "expected controller send stream")
-        try expect(writes == ["tmux attach-session -t 'work'\r", "hello tmux\r"], "expected controller writes")
+        try expect(writes == [
+            "tmux attach-session -t 'work'\r",
+            "\u{02}:switch-client -t 'ops'\r",
+            "hello tmux\r"
+        ], "expected controller writes")
     }
 
     private static func checkOpenSSHArguments() throws {
