@@ -113,6 +113,87 @@ public final actor CitadelRemoteShell: RemoteShell {
     }
 }
 
+public final actor CitadelAttachmentUploader: AttachmentUploader {
+    private let profile: SSHConnectionProfile
+    private let factory: CitadelConnectionFactory
+
+    public init(profile: SSHConnectionProfile, factory: CitadelConnectionFactory = CitadelConnectionFactory()) {
+        self.profile = profile
+        self.factory = factory
+    }
+
+    public func upload(_ attachment: PendingAttachment, to remotePath: String) async throws -> PendingAttachment {
+        guard FileManager.default.fileExists(atPath: attachment.localURL.path) else {
+            throw AttachmentUploadError.sourceMissing(attachment.localURL.path)
+        }
+
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: attachment.localURL.path, isDirectory: &isDirectory)
+        guard !isDirectory.boolValue else {
+            throw AttachmentUploadError.sourceIsDirectory(attachment.localURL.path)
+        }
+
+        let data = try Data(contentsOf: attachment.localURL)
+        let client = try await SSHClient.connect(to: try factory.settings(for: profile))
+        do {
+            try await client.withSFTP { [self] sftp in
+                let sftpPath = try await self.resolveSFTPPath(remotePath, using: sftp)
+                try await self.createParentDirectories(for: sftpPath, using: sftp)
+                try await sftp.withFile(
+                    filePath: sftpPath,
+                    flags: [.write, .create, .truncate]
+                ) { file in
+                    var buffer = ByteBufferAllocator().buffer(capacity: data.count)
+                    buffer.writeBytes(data)
+                    try await file.write(buffer)
+                }
+            }
+
+            try await client.close()
+            var uploaded = attachment
+            uploaded.remotePath = remotePath
+            return uploaded
+        } catch {
+            try? await client.close()
+            throw error
+        }
+    }
+
+    private func resolveSFTPPath(_ remotePath: String, using sftp: SFTPClient) async throws -> String {
+        if remotePath == "~" {
+            return try await sftp.getRealPath(atPath: "~")
+        }
+
+        if remotePath.hasPrefix("~/") {
+            let home = try await sftp.getRealPath(atPath: "~")
+            return "\(home)/\(remotePath.dropFirst(2))"
+        }
+
+        return remotePath
+    }
+
+    private func createParentDirectories(for remotePath: String, using sftp: SFTPClient) async throws {
+        let parts = remotePath.split(separator: "/").map(String.init)
+        guard parts.count > 1 else {
+            return
+        }
+
+        var current = remotePath.hasPrefix("/") ? "/" : ""
+        for part in parts.dropLast() {
+            current = current.isEmpty || current == "/"
+                ? "\(current)\(part)"
+                : "\(current)/\(part)"
+            do {
+                try await sftp.createDirectory(atPath: current)
+            } catch {
+                // SFTP servers differ in how they report an existing directory.
+                // Continue here so upload remains idempotent; openFile still fails
+                // if the path is actually unusable.
+            }
+        }
+    }
+}
+
 @available(macOS 15.0, iOS 17.0, *)
 public final actor CitadelTerminalTransport: TerminalTransport {
     public nonisolated let kind: TerminalTransportKind = .ssh

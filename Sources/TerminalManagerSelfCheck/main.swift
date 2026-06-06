@@ -23,6 +23,7 @@ struct TerminalManagerSelfCheck {
         try checkTranscriptCompaction()
         try checkTranscriptCorrelation()
         try checkAttachmentPath()
+        try await checkAttachmentUpload()
         try await checkRecordingTransport()
         try await checkTerminalPipelineE2E()
         try checkOpenSSHArguments()
@@ -199,6 +200,52 @@ struct TerminalManagerSelfCheck {
         try expect(path == "~/TerminalManager/attachments/codex-sks-quotes/site-photo-1.png", "expected sanitized attachment path")
     }
 
+    private static func checkAttachmentUpload() async throws {
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("terminal-manager-upload-\(UUID().uuidString)")
+        let localSource = tempRoot.appendingPathComponent("local").appendingPathComponent("site photo.png")
+        let remoteRoot = tempRoot.appendingPathComponent("remote")
+
+        try fileManager.createDirectory(at: localSource.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("attachment-bytes".utf8).write(to: localSource)
+        defer {
+            try? fileManager.removeItem(at: tempRoot)
+        }
+
+        let host = HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark")
+        let session = TerminalSession(hostId: host.id, tmuxSessionName: "codex/sks quotes", title: "Codex")
+        let attachment = PendingAttachment(localURL: localSource, kind: .image)
+        let uploader = LocalFilesystemAttachmentUploader(remoteRoot: remoteRoot)
+        let transport = RecordingTerminalTransport()
+        let pipeline = TerminalPipeline(host: host, tmux: TmuxService(shell: StubRemoteShell()), transport: transport)
+
+        try await transport.connect(to: host, size: TerminalSize())
+        let uploaded = try await pipeline.uploadAttachmentAndSendReference(attachment, in: session, using: uploader)
+        let remotePath = try expect(uploaded.remotePath, "expected uploaded remote path")
+        let copiedFile = remoteRoot
+            .appendingPathComponent("codex-sks-quotes")
+            .appendingPathComponent("site-photo.png")
+
+        try expect(remotePath == "~/TerminalManager/attachments/codex-sks-quotes/site-photo.png", "expected uploaded remote path")
+        try expect(fileManager.fileExists(atPath: copiedFile.path), "expected copied attachment file")
+        let copiedBytes = try Data(contentsOf: copiedFile)
+        try expect(copiedBytes == Data("attachment-bytes".utf8), "expected copied attachment bytes")
+
+        let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
+        try expect(writes == ["~/TerminalManager/attachments/codex-sks-quotes/site-photo.png\r"], "expected uploaded path terminal write")
+
+        do {
+            _ = try await uploader.upload(
+                PendingAttachment(localURL: tempRoot.appendingPathComponent("missing.png"), kind: .image),
+                to: "~/TerminalManager/attachments/codex-sks-quotes/missing.png"
+            )
+            throw SelfCheckFailure.assertion("missing upload source should fail")
+        } catch AttachmentUploadError.sourceMissing {
+            // expected
+        }
+    }
+
     private static func checkRecordingTransport() async throws {
         let transport = RecordingTerminalTransport()
         let host = HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark")
@@ -322,5 +369,13 @@ struct TerminalManagerSelfCheck {
         guard condition() else {
             throw SelfCheckFailure.assertion(message)
         }
+    }
+
+    private static func expect<T>(_ value: T?, _ message: String) throws -> T {
+        guard let value else {
+            throw SelfCheckFailure.assertion(message)
+        }
+
+        return value
     }
 }
