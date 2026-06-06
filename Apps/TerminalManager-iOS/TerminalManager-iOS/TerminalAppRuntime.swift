@@ -1,4 +1,5 @@
 import Foundation
+import TerminalManagerCitadelSupport
 import TerminalManagerCore
 
 struct TerminalAppBootstrap: Sendable {
@@ -14,6 +15,150 @@ protocol TerminalAppRuntime: Sendable {
     func attach(to session: TerminalSession, size: TerminalSize) async throws
     func sendUserText(_ text: String) async throws
     func terminalTextStream() -> AsyncThrowingStream<String, Error>
+}
+
+enum TerminalAppRuntimeFactory {
+    static func makeDefaultRuntime(environment: [String: String] = ProcessInfo.processInfo.environment) -> any TerminalAppRuntime {
+        if let configuration = LiveSSHTerminalAppRuntime.Configuration(environment: environment) {
+            return LiveSSHTerminalAppRuntime(configuration: configuration)
+        }
+
+        return FixtureTerminalAppRuntime()
+    }
+}
+
+private struct StaticCitadelPasswordProvider: CitadelPasswordProvider {
+    var password: String
+
+    func password(service: String, account: String) throws -> String {
+        password
+    }
+}
+
+@available(iOS 17.0, *)
+final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
+    struct Configuration: Sendable, Equatable {
+        var host: HostProfile
+        var password: String
+        var allowUnsafeHostKeyPolicy: Bool
+
+        init?(
+            environment: [String: String],
+            prefix: String = "TERMINAL_MANAGER_LIVE_SSH_"
+        ) {
+            guard environment[prefix + "ENABLED"] == "1" else {
+                return nil
+            }
+
+            guard
+                let hostname = environment[prefix + "HOST"],
+                !hostname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                return nil
+            }
+
+            let username = environment[prefix + "USER"]
+                ?? environment["USER"]
+                ?? "mark"
+            let password = environment[prefix + "PASSWORD"] ?? ""
+            guard !password.isEmpty else {
+                return nil
+            }
+
+            let allowUnsafeHostKeyPolicy = environment[prefix + "ALLOW_UNSAFE_HOST_KEY"] == "1"
+            guard allowUnsafeHostKeyPolicy else {
+                return nil
+            }
+
+            self.host = HostProfile(
+                displayName: environment[prefix + "NAME"] ?? hostname,
+                hostname: hostname,
+                port: environment[prefix + "PORT"].flatMap(Int.init) ?? 22,
+                username: username,
+                preferredTransport: .ssh
+            )
+            self.password = password
+            self.allowUnsafeHostKeyPolicy = allowUnsafeHostKeyPolicy
+        }
+    }
+
+    private let configuration: Configuration
+    private let controller: TerminalSessionController
+
+    init(configuration: Configuration) {
+        self.configuration = configuration
+        let profile = SSHConnectionProfile(
+            host: configuration.host,
+            authentication: .passwordKeychain(
+                service: "TerminalManagerLiveSSH",
+                account: "\(configuration.host.username)@\(configuration.host.hostname)"
+            ),
+            hostKeyPolicy: configuration.allowUnsafeHostKeyPolicy ? .acceptAnyForSmokeOnly : .knownHosts
+        )
+        let factory = CitadelConnectionFactory(
+            allowUnsafeHostKeyPolicy: configuration.allowUnsafeHostKeyPolicy,
+            passwordProvider: StaticCitadelPasswordProvider(password: configuration.password)
+        )
+        self.controller = TerminalSessionController(
+            pipeline: TerminalPipeline(
+                host: configuration.host,
+                tmux: TmuxService(shell: CitadelRemoteShell(profile: profile, factory: factory)),
+                transport: CitadelTerminalTransport(profile: profile, factory: factory)
+            )
+        )
+    }
+
+    nonisolated func terminalTextStream() -> AsyncThrowingStream<String, Error> {
+        let byteStream = controller.screenBytes()
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for try await data in byteStream {
+                        if let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                            continuation.yield(text)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    func bootstrap() async throws -> TerminalAppBootstrap {
+        let snapshot = try await controller.discoverSessions()
+        let sessions = snapshot.terminalSessions
+        let selectedSession = sessions.first ?? TerminalSession(
+            hostId: configuration.host.id,
+            tmuxSessionName: "no-session",
+            title: "No tmux sessions",
+            workingDirectory: nil
+        )
+        return TerminalAppBootstrap(
+            host: snapshot.host,
+            sessions: sessions,
+            selectedSession: selectedSession,
+            terminalLines: [
+                "Terminal Manager live SSH runtime",
+                "Connected to \(configuration.host.username)@\(configuration.host.hostname)",
+                "Discovered \(sessions.count) tmux sessions"
+            ],
+            sidecarCards: PreviewFixtures.sidecarCards
+        )
+    }
+
+    func attach(to session: TerminalSession, size: TerminalSize) async throws {
+        guard !session.tmuxSessionName.isEmpty, session.tmuxSessionName != "no-session" else {
+            return
+        }
+
+        try await controller.attach(to: session, size: size)
+    }
+
+    func sendUserText(_ text: String) async throws {
+        try await controller.sendUserText(text)
+    }
 }
 
 final actor FixtureTerminalAppRuntime: TerminalAppRuntime {

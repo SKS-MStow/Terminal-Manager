@@ -19,6 +19,8 @@ targets:
     dependencies:
       - package: TerminalManagerPackage
         product: TerminalManagerCore
+      - package: TerminalManagerPackage
+        product: TerminalManagerCitadelSupport
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sksmstow.TerminalManager
