@@ -26,6 +26,8 @@
 	<string>Terminal Manager uses the camera to attach photos to the active terminal session.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Terminal Manager uses the microphone to record voice notes before sending transcribed text to the terminal.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Terminal Manager connects to your Mac or remote host over SSH so it can list and attach tmux sessions.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Terminal Manager uses the photo library to attach selected images to the active terminal session.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

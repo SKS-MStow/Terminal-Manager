@@ -25,7 +25,7 @@ final class TerminalManagerViewModel: ObservableObject {
         terminalLines: [String] = PreviewFixtures.terminalLines,
         sidecarCards: [CompactedAgentActivityCard] = PreviewFixtures.sidecarCards,
         pendingAttachments: [PendingAttachment] = [],
-        runtime: any TerminalAppRuntime = FixtureTerminalAppRuntime()
+        runtime: any TerminalAppRuntime = TerminalAppRuntimeFactory.makeDefaultRuntime()
     ) {
         self.host = host
         self.sessions = sessions

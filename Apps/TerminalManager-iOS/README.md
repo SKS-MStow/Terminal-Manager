@@ -33,3 +33,19 @@ open TerminalManager.xcodeproj
 
 In Xcode, select the `Terminal Manager` target, choose Mark's Apple Developer
 team for automatic signing, connect the iPhone, and run the app on the device.
+
+Live SSH tmux smoke mode is opt-in. Set these environment variables in the
+Xcode scheme, or prefix them with `SIMCTL_CHILD_` when launching from `simctl`:
+
+```sh
+TERMINAL_MANAGER_LIVE_SSH_ENABLED=1
+TERMINAL_MANAGER_LIVE_SSH_HOST=<mac-or-hostname>
+TERMINAL_MANAGER_LIVE_SSH_USER=<ssh-user>
+TERMINAL_MANAGER_LIVE_SSH_PASSWORD=<ssh-password>
+TERMINAL_MANAGER_LIVE_SSH_ALLOW_UNSAFE_HOST_KEY=1
+```
+
+The unsafe host-key flag is required because the current Citadel bridge only
+supports the smoke-only host-key policy. Keep this for local testing only; the
+next production path needs known-host or pinned-key support plus Keychain-backed
+credential entry.
