@@ -13,6 +13,10 @@ let package = Package(
             name: "TerminalManagerCore",
             targets: ["TerminalManagerCore"]
         ),
+        .library(
+            name: "TerminalManagerCitadelSupport",
+            targets: ["TerminalManagerCitadelSupport"]
+        ),
         .executable(
             name: "terminal-manager-selfcheck",
             targets: ["TerminalManagerSelfCheck"]
@@ -24,11 +28,25 @@ let package = Package(
         .executable(
             name: "terminal-manager-ssh-smoke",
             targets: ["TerminalManagerSSHSmoke"]
+        ),
+        .executable(
+            name: "terminal-manager-citadel-selfcheck",
+            targets: ["TerminalManagerCitadelSelfCheck"]
         )
+    ],
+    dependencies: [
+        .package(url: "https://github.com/orlandos-nl/Citadel.git", from: "0.12.1")
     ],
     targets: [
         .target(
             name: "TerminalManagerCore"
+        ),
+        .target(
+            name: "TerminalManagerCitadelSupport",
+            dependencies: [
+                "TerminalManagerCore",
+                .product(name: "Citadel", package: "Citadel")
+            ]
         ),
         .executableTarget(
             name: "TerminalManagerSelfCheck",
@@ -41,6 +59,10 @@ let package = Package(
         .executableTarget(
             name: "TerminalManagerSSHSmoke",
             dependencies: ["TerminalManagerCore"]
+        ),
+        .executableTarget(
+            name: "TerminalManagerCitadelSelfCheck",
+            dependencies: ["TerminalManagerCitadelSupport"]
         )
     ]
 )
