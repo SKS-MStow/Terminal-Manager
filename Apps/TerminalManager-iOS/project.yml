@@ -21,6 +21,7 @@ targets:
         product: TerminalManagerCore
       - package: TerminalManagerPackage
         product: TerminalManagerCitadelSupport
+      - sdk: Security.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sksmstow.TerminalManager
