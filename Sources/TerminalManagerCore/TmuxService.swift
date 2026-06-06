@@ -23,6 +23,8 @@ public struct TmuxPane: Identifiable, Equatable, Sendable {
     public var title: String
     public var currentCommand: String?
     public var currentPath: String?
+    public var isActiveWindow: Bool
+    public var isActivePane: Bool
 
     public init(
         sessionName: String,
@@ -30,7 +32,9 @@ public struct TmuxPane: Identifiable, Equatable, Sendable {
         paneId: String,
         title: String,
         currentCommand: String? = nil,
-        currentPath: String? = nil
+        currentPath: String? = nil,
+        isActiveWindow: Bool = false,
+        isActivePane: Bool = false
     ) {
         self.sessionName = sessionName
         self.windowIndex = windowIndex
@@ -38,6 +42,8 @@ public struct TmuxPane: Identifiable, Equatable, Sendable {
         self.title = title
         self.currentCommand = currentCommand
         self.currentPath = currentPath
+        self.isActiveWindow = isActiveWindow
+        self.isActivePane = isActivePane
     }
 }
 
@@ -59,7 +65,7 @@ public final class TmuxService: Sendable {
     }
 
     public func listPanes() async throws -> [TmuxPane] {
-        let format = "#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}"
+        let format = "#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}"
         let result = try await shell.run("tmux list-panes -a -F '\(format)'")
         try Self.throwIfFailed(result, command: "tmux list-panes")
 
@@ -145,7 +151,9 @@ public final class TmuxService: Sendable {
             paneId: paneId,
             title: fields[safe: 3] ?? "",
             currentCommand: fields[safe: 4],
-            currentPath: fields[safe: 5]
+            currentPath: fields[safe: 5],
+            isActiveWindow: fields[safe: 6] == "1",
+            isActivePane: fields[safe: 7] == "1"
         )
     }
 

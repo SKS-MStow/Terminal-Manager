@@ -48,7 +48,7 @@ public final class TerminalPipeline: Sendable {
         let loadedPanes = try await panes
         let panesBySession = Dictionary(grouping: loadedPanes, by: \.sessionName)
         let terminalSessions = loadedSessions.map { tmuxSession in
-            let pane = panesBySession[tmuxSession.name]?.first
+            let pane = Self.representativePane(for: panesBySession[tmuxSession.name] ?? [])
             return TerminalSession(
                 hostId: host.id,
                 tmuxSessionName: tmuxSession.name,
@@ -149,6 +149,13 @@ public final class TerminalPipeline: Sendable {
 
     private func sendLine(_ text: String) async throws {
         try await transport.send(Data((text + "\r").utf8))
+    }
+
+    private static func representativePane(for panes: [TmuxPane]) -> TmuxPane? {
+        panes.first(where: { $0.isActiveWindow && $0.isActivePane })
+            ?? panes.first(where: \.isActivePane)
+            ?? panes.first(where: \.isActiveWindow)
+            ?? panes.first
     }
 
     private static func agentKind(for pane: TmuxPane) -> AgentKind? {

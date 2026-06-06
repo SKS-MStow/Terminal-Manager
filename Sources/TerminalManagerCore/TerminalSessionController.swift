@@ -20,7 +20,12 @@ public final actor TerminalSessionController {
         if attachedSession == nil {
             try await pipeline.attach(to: session, size: size)
         } else {
-            try await pipeline.switchClient(to: session)
+            do {
+                try await pipeline.switchClient(to: session)
+            } catch TerminalTransportError.notConnected {
+                attachedSession = nil
+                try await pipeline.attach(to: session, size: size)
+            }
         }
         attachedSession = session
     }

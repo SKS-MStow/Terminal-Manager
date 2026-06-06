@@ -49,6 +49,8 @@ public struct TerminalScrollbackBuffer: Sendable, Equatable {
         case .escape:
             if scalar == "[" {
                 parserState = .csi("")
+            } else if scalar == "]" {
+                parserState = .osc
             } else {
                 parserState = .normal
             }
@@ -58,6 +60,18 @@ public struct TerminalScrollbackBuffer: Sendable, Equatable {
                 parserState = .normal
             } else {
                 parserState = .csi(parameters + String(scalar))
+            }
+        case .osc:
+            if scalar == "\u{07}" {
+                parserState = .normal
+            } else if scalar == "\u{1B}" {
+                parserState = .oscEscape
+            }
+        case .oscEscape:
+            if scalar == "\\" {
+                parserState = .normal
+            } else {
+                parserState = .osc
             }
         }
     }
@@ -106,12 +120,14 @@ public struct TerminalScrollbackBuffer: Sendable, Equatable {
         let mode = firstParameter(parameters, defaultValue: 0)
         switch mode {
         case 1:
-            if cursorColumn < currentLine.count {
-                currentLine.removeFirst(min(cursorColumn + 1, currentLine.count))
-            } else {
-                currentLine.removeAll()
+            let eraseCount = min(cursorColumn + 1, currentLine.count)
+            guard eraseCount > 0 else {
+                return
             }
-            cursorColumn = 0
+            currentLine.replaceSubrange(
+                0..<eraseCount,
+                with: Array(repeating: UnicodeScalar(" "), count: eraseCount)
+            )
         case 2:
             currentLine.removeAll()
             cursorColumn = 0
@@ -154,4 +170,6 @@ private enum ParserState: Sendable, Equatable {
     case normal
     case escape
     case csi(String)
+    case osc
+    case oscEscape
 }
