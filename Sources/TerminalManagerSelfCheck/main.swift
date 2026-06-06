@@ -26,6 +26,7 @@ struct TerminalManagerSelfCheck {
         try await checkAttachmentUpload()
         try await checkRecordingTransport()
         try checkTerminalScrollbackBuffer()
+        try checkTerminalInputKeyBytes()
         try checkTerminalGridMetrics()
         try await checkTerminalPipelineE2E()
         try await checkTerminalSessionController()
@@ -271,16 +272,33 @@ struct TerminalManagerSelfCheck {
     }
 
     private static func checkTerminalGridMetrics() throws {
+        let fittedSize = TerminalSize.fitting(
+            availableWidth: 390,
+            availableHeight: 620
+        )
+        try expect(fittedSize.columns >= 48, "expected fitted terminal columns to stay usable")
+        try expect(fittedSize.rows >= 18, "expected fitted terminal rows to stay usable")
+
         let metrics = TerminalGridMetrics.fitting(
-            terminalSize: TerminalSize(columns: 100, rows: 32),
+            terminalSize: fittedSize,
             availableWidth: 390,
             availableHeight: 620
         )
 
-        try expect(metrics.terminalSize == TerminalSize(columns: 100, rows: 32), "expected grid metrics to preserve tmux size")
-        try expect(metrics.fontSize < 13, "expected iPhone-width grid to reduce font size")
+        try expect(metrics.terminalSize == fittedSize, "expected grid metrics to preserve fitted tmux size")
+        try expect(metrics.fontSize <= 13, "expected iPhone-width grid to fit font size")
         try expect(metrics.gridWidth + metrics.horizontalPadding * 2 <= 390.01, "expected 100 columns to fit available width")
         try expect(metrics.gridHeight + metrics.verticalPadding * 2 <= 620.01, "expected 32 rows to fit available height")
+    }
+
+    private static func checkTerminalInputKeyBytes() throws {
+        try expect(TerminalInputKey.escape.bytes == Data([0x1B]), "expected escape byte")
+        try expect(TerminalInputKey.tab.bytes == Data([0x09]), "expected tab byte")
+        try expect(TerminalInputKey.tmuxPrefix.bytes == Data([0x02]), "expected tmux prefix byte")
+        try expect(TerminalInputKey.controlC.bytes == Data([0x03]), "expected control-c byte")
+        try expect(TerminalInputKey.arrowUp.bytes == Data("\u{1B}[A".utf8), "expected arrow-up sequence")
+        try expect(TerminalInputKey.enter.bytes == Data([0x0D]), "expected enter byte")
+        try expect(TerminalInputKey.backspace.bytes == Data([0x7F]), "expected backspace byte")
     }
 
     private static func checkTerminalScrollbackBuffer() throws {
@@ -342,6 +360,7 @@ struct TerminalManagerSelfCheck {
 
         try await pipeline.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
         try await pipeline.sendUserText("continue")
+        try await pipeline.sendTerminalBytes(TerminalInputKey.escape.bytes)
         let remotePath = try await pipeline.sendAttachmentReference(
             PendingAttachment(localURL: URL(fileURLWithPath: "/tmp/screen shot.png"), kind: .image),
             in: session
@@ -354,6 +373,7 @@ struct TerminalManagerSelfCheck {
         try expect(writes == [
             "tmux attach-session -t 'codex-sks'\r",
             "continue\r",
+            "\u{1B}",
             "~/TerminalManager/attachments/codex-sks/screen-shot.png\r"
         ], "expected E2E terminal writes")
     }
@@ -402,6 +422,7 @@ struct TerminalManagerSelfCheck {
         try await controller.attach(to: secondSession, size: TerminalSize(columns: 120, rows: 40))
         try await controller.resizeTerminal(to: TerminalSize(columns: 88, rows: 28))
         try await controller.sendUserText("hello tmux")
+        try await controller.sendTerminalBytes(TerminalInputKey.controlC.bytes)
         let output = try await reader.value
         let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
         let size = await transport.currentSize()
@@ -417,7 +438,8 @@ struct TerminalManagerSelfCheck {
         try expect(writes == [
             "tmux attach-session -t 'work'\r",
             "\u{02}:switch-client -t 'ops'\r",
-            "hello tmux\r"
+            "hello tmux\r",
+            "\u{03}"
         ], "expected controller writes")
     }
 

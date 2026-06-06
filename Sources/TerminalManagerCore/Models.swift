@@ -38,6 +38,32 @@ public struct TerminalSize: Codable, Equatable, Sendable {
         self.columns = columns
         self.rows = rows
     }
+
+    public static func fitting(
+        availableWidth: Double,
+        availableHeight: Double,
+        preferredFontSize: Double = 10,
+        characterAspectRatio: Double = 0.62,
+        lineHeightMultiplier: Double = 1.35,
+        horizontalPadding: Double = 14,
+        verticalPadding: Double = 14,
+        minimumColumns: Int = 48,
+        maximumColumns: Int = 120,
+        minimumRows: Int = 18,
+        maximumRows: Int = 60
+    ) -> TerminalSize {
+        let contentWidth = max(1, availableWidth - horizontalPadding * 2)
+        let contentHeight = max(1, availableHeight - verticalPadding * 2)
+        let characterWidth = max(1, preferredFontSize * characterAspectRatio)
+        let lineHeight = max(1, preferredFontSize * lineHeightMultiplier)
+        let fittedColumns = Int(contentWidth / characterWidth)
+        let fittedRows = Int(contentHeight / lineHeight)
+
+        return TerminalSize(
+            columns: min(maximumColumns, max(minimumColumns, fittedColumns)),
+            rows: min(maximumRows, max(minimumRows, fittedRows))
+        )
+    }
 }
 
 public struct TerminalGridMetrics: Equatable, Sendable {

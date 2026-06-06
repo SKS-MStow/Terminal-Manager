@@ -29,6 +29,10 @@ public final actor TerminalSessionController {
         try await pipeline.sendUserText(text)
     }
 
+    public func sendTerminalBytes(_ bytes: Data) async throws {
+        try await pipeline.sendTerminalBytes(bytes)
+    }
+
     public func resizeTerminal(to size: TerminalSize) async throws {
         try await pipeline.resizeTerminal(to: size)
     }

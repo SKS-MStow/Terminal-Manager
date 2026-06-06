@@ -85,6 +85,10 @@ public final class TerminalPipeline: Sendable {
         try await sendLine(text)
     }
 
+    public func sendTerminalBytes(_ bytes: Data) async throws {
+        try await transport.send(bytes)
+    }
+
     public func sendAttachmentReference(_ attachment: PendingAttachment, in session: TerminalSession) async throws -> String {
         let remotePath = attachmentPathBuilder.remotePath(for: attachment, session: session)
         try await sendLine(remotePath)

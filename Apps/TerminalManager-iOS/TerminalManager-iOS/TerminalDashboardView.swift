@@ -380,7 +380,11 @@ private struct TerminalWorkspace: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalSurface(lines: viewModel.terminalLines, terminalSize: viewModel.terminalSize)
+            TerminalSurface(
+                lines: viewModel.terminalLines,
+                onTerminalSizeChange: viewModel.updateTerminalSize
+            )
+            TerminalKeyAccessoryBar(onKey: viewModel.sendTerminalKey)
             ComposerBar(
                 text: $viewModel.composerText,
                 pendingAttachmentCount: viewModel.pendingAttachments.count,
@@ -490,12 +494,16 @@ private struct TmuxSessionDrawer: View {
 
 private struct TerminalSurface: View {
     var lines: [String]
-    var terminalSize: TerminalSize
+    var onTerminalSizeChange: (TerminalSize) -> Void
 
     var body: some View {
         GeometryReader { geometry in
+            let fittedTerminalSize = TerminalSize.fitting(
+                availableWidth: Double(geometry.size.width),
+                availableHeight: Double(geometry.size.height)
+            )
             let metrics = TerminalGridMetrics.fitting(
-                terminalSize: terminalSize,
+                terminalSize: fittedTerminalSize,
                 availableWidth: Double(geometry.size.width),
                 availableHeight: Double(geometry.size.height)
             )
@@ -521,7 +529,11 @@ private struct TerminalSurface: View {
                 }
                 .background(.black)
                 .onAppear {
+                    onTerminalSizeChange(fittedTerminalSize)
                     scrollToBottom(proxy)
+                }
+                .onChange(of: fittedTerminalSize) { _, newSize in
+                    onTerminalSizeChange(newSize)
                 }
                 .onChange(of: lines.count) { _, _ in
                     scrollToBottom(proxy)
@@ -541,6 +553,63 @@ private struct TerminalSurface: View {
                 proxy.scrollTo(last, anchor: .bottom)
             }
         }
+    }
+}
+
+private struct TerminalKeyAccessoryBar: View {
+    var onKey: (TerminalInputKey) -> Void
+
+    private let keys: [TerminalInputKey] = [
+        .escape,
+        .tab,
+        .tmuxPrefix,
+        .controlC,
+        .arrowLeft,
+        .arrowDown,
+        .arrowUp,
+        .arrowRight,
+        .enter,
+        .backspace
+    ]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(keys) { key in
+                    TerminalKeyButton(key: key) {
+                        onKey(key)
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+        }
+        .background(AppColor.header)
+    }
+}
+
+private struct TerminalKeyButton: View {
+    var key: TerminalInputKey
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if let systemImageName = key.systemImageName {
+                    Image(systemName: systemImageName)
+                        .font(.system(size: 14, weight: .semibold))
+                } else {
+                    Text(key.label)
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .foregroundStyle(AppColor.primaryText)
+            .frame(width: 42, height: 32)
+            .background(key == .tmuxPrefix ? AppColor.accent.opacity(0.82) : AppColor.elevated)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(key.label)
     }
 }
 

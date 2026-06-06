@@ -16,6 +16,7 @@ protocol TerminalAppRuntime: Sendable {
     func attach(to session: TerminalSession, size: TerminalSize) async throws
     func resizeTerminal(to size: TerminalSize) async throws
     func sendUserText(_ text: String) async throws
+    func sendTerminalBytes(_ bytes: Data) async throws
     func terminalTextStream() -> AsyncThrowingStream<String, Error>
 }
 
@@ -217,6 +218,10 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
     func sendUserText(_ text: String) async throws {
         try await controller.sendUserText(text)
     }
+
+    func sendTerminalBytes(_ bytes: Data) async throws {
+        try await controller.sendTerminalBytes(bytes)
+    }
 }
 
 final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
@@ -283,6 +288,10 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
 
     func sendUserText(_ text: String) async throws {
         try await controller.sendUserText(text)
+    }
+
+    func sendTerminalBytes(_ bytes: Data) async throws {
+        try await controller.sendTerminalBytes(bytes)
     }
 
     private static func tmuxResponses(for sessions: [TerminalSession]) -> [String: RemoteCommandResult] {

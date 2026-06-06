@@ -142,14 +142,20 @@ final class TerminalManagerViewModel: ObservableObject {
     }
 
     func sendComposerText() {
-        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        let text = composerText
+        guard !text.isEmpty else {
             return
         }
 
         composerText = ""
         Task {
-            await sendToTerminal(trimmed)
+            await sendToTerminal(text)
+        }
+    }
+
+    func sendTerminalKey(_ key: TerminalInputKey) {
+        Task {
+            await sendRawTerminalBytes(key.bytes)
         }
     }
 
@@ -218,6 +224,14 @@ final class TerminalManagerViewModel: ObservableObject {
     private func sendToTerminal(_ text: String) async {
         do {
             try await runtime.sendUserText(text)
+        } catch {
+            appendTerminalText("Send failed: \(error)\n")
+        }
+    }
+
+    private func sendRawTerminalBytes(_ bytes: Data) async {
+        do {
+            try await runtime.sendTerminalBytes(bytes)
         } catch {
             appendTerminalText("Send failed: \(error)\n")
         }
