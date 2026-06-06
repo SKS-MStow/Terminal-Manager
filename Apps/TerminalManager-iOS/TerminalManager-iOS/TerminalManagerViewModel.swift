@@ -120,11 +120,13 @@ final class TerminalManagerViewModel: ObservableObject {
     func refreshTmuxSessions() async {
         do {
             let refreshedSessions = try await runtime.refreshSessions()
+            sessions = refreshedSessions
             guard !refreshedSessions.isEmpty else {
+                selectedSession = Self.placeholderSession(for: host)
+                statusText = "0 tmux"
                 return
             }
 
-            sessions = refreshedSessions
             if let selected = refreshedSessions.first(where: { $0.tmuxSessionName == selectedSession.tmuxSessionName }) {
                 selectedSession = selected
             } else if let first = refreshedSessions.first {

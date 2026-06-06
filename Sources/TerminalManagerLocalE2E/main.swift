@@ -23,12 +23,15 @@ struct TerminalManagerLocalE2E {
         try await requireTool("tmux", shell: shell)
 
         let sessionName = "terminal-manager-e2e-\(UUID().uuidString.prefix(8))"
+        let secondSessionName = "terminal-manager-e2e-\(UUID().uuidString.prefix(8))"
         let cwd = FileManager.default.currentDirectoryPath
         let escapedName = shellQuote(sessionName)
+        let escapedSecondName = shellQuote(secondSessionName)
         let escapedCwd = shellQuote(cwd)
 
         do {
             _ = try checked(try await shell.run("tmux new-session -d -s '\(escapedName)' -c '\(escapedCwd)' 'zsh'"), command: "tmux new-session")
+            _ = try checked(try await shell.run("tmux new-session -d -s '\(escapedSecondName)' -c '\(escapedCwd)' 'zsh'"), command: "tmux new-session second")
             _ = try checked(try await shell.run("tmux send-keys -t '\(escapedName)' -l -- 'printf terminal-manager-e2e'"), command: "tmux send-keys literal")
             _ = try checked(try await shell.run("tmux send-keys -t '\(escapedName)' Enter"), command: "tmux send-keys enter")
             try await Task.sleep(nanoseconds: 300_000_000)
@@ -54,12 +57,19 @@ struct TerminalManagerLocalE2E {
             try expect(writes.first == "tmux attach-session -t '\(sessionName)'\r", "pipeline did not emit expected attach command")
             try expect(writes.last == "~/TerminalManager/attachments/\(sessionName)/e2e-photo.png\r", "pipeline did not emit expected uploaded attachment path")
 
-            try await checkControllerRuntime(host: host, shell: shell, sessionName: sessionName)
+            try await checkControllerRuntime(
+                host: host,
+                shell: shell,
+                sessionName: sessionName,
+                secondSessionName: secondSessionName
+            )
             try await checkShellProcessTransport(host: host)
             try await checkEnvGatedOpenSSH()
             try await cleanupTmuxSession(named: escapedName, shell: shell)
+            try await cleanupTmuxSession(named: escapedSecondName, shell: shell)
         } catch {
             try await cleanupTmuxSession(named: escapedName, shell: shell)
+            try await cleanupTmuxSession(named: escapedSecondName, shell: shell)
             throw error
         }
 
@@ -118,7 +128,12 @@ struct TerminalManagerLocalE2E {
         try expect(output.contains(marker), "shell process transport did not stream marker")
     }
 
-    private static func checkControllerRuntime(host: HostProfile, shell: LocalShell, sessionName: String) async throws {
+    private static func checkControllerRuntime(
+        host: HostProfile,
+        shell: LocalShell,
+        sessionName: String,
+        secondSessionName: String
+    ) async throws {
         let transport = RecordingTerminalTransport()
         let controller = TerminalSessionController(
             pipeline: TerminalPipeline(
@@ -141,11 +156,15 @@ struct TerminalManagerLocalE2E {
         }
 
         let snapshot = try await controller.discoverSessions()
-        guard let session = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == sessionName }) else {
-            throw LocalE2EFailure.assertion("controller did not discover temporary tmux session")
+        guard
+            let session = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == sessionName }),
+            let secondSession = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == secondSessionName })
+        else {
+            throw LocalE2EFailure.assertion("controller did not discover temporary tmux sessions")
         }
 
         try await controller.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
+        try await controller.attach(to: secondSession, size: TerminalSize(columns: 100, rows: 32))
         try await controller.resizeTerminal(to: TerminalSize(columns: 120, rows: 36))
         try await controller.sendUserText(marker)
 
@@ -154,10 +173,12 @@ struct TerminalManagerLocalE2E {
         let size = await transport.currentSize()
 
         try expect(output.contains("tmux attach-session -t '\(sessionName)'"), "controller stream did not include attach command")
+        try expect(output.contains("switch-client -t '\(secondSessionName)'"), "controller stream did not include switch-client command")
         try expect(output.contains(marker), "controller stream did not include sent marker")
         try expect(size == TerminalSize(columns: 120, rows: 36), "controller resize did not update transport size")
         try expect(writes == [
             "tmux attach-session -t '\(sessionName)'\r",
+            "\u{02}:switch-client -t '\(secondSessionName)'\r",
             "\(marker)\r"
         ], "controller did not emit expected writes")
     }
