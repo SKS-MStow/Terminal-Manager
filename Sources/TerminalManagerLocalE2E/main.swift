@@ -167,6 +167,7 @@ struct TerminalManagerLocalE2E {
         try await controller.attach(to: secondSession, size: TerminalSize(columns: 100, rows: 32))
         try await controller.resizeTerminal(to: TerminalSize(columns: 120, rows: 36))
         try await controller.sendUserText(marker)
+        try await controller.sendTerminalBytes(TerminalInputKey.tab.bytes)
 
         let output = try await reader.value
         let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
@@ -179,7 +180,8 @@ struct TerminalManagerLocalE2E {
         try expect(writes == [
             "tmux attach-session -t '\(sessionName)'\r",
             "\u{02}:switch-client -t '\(secondSessionName)'\r",
-            "\(marker)\r"
+            "\(marker)\r",
+            "\t"
         ], "controller did not emit expected writes")
     }
 
