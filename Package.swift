@@ -16,6 +16,10 @@ let package = Package(
         .executable(
             name: "terminal-manager-selfcheck",
             targets: ["TerminalManagerSelfCheck"]
+        ),
+        .executable(
+            name: "terminal-manager-local-e2e",
+            targets: ["TerminalManagerLocalE2E"]
         )
     ],
     targets: [
@@ -24,6 +28,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "TerminalManagerSelfCheck",
+            dependencies: ["TerminalManagerCore"]
+        ),
+        .executableTarget(
+            name: "TerminalManagerLocalE2E",
             dependencies: ["TerminalManagerCore"]
         )
     ]

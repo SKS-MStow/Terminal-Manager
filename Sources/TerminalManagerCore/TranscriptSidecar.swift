@@ -28,22 +28,26 @@ public struct CodexTranscriptParser: TranscriptParser {
             return nil
         }
 
-        let type = object["type"] as? String
-        let role = object["role"] as? String
-        let itemType = object["item_type"] as? String
-        let message = object["message"] as? String
-        let body = extractBody(from: object)
-        let kind = classifyCodexBlock(type: type, role: role, itemType: itemType, body: body)
-        let title = titleFor(kind: kind, type: type, itemType: itemType)
+        let payload = (object["payload"] as? [String: Any]) ?? object
+        let envelopeType = object["type"] as? String
+        let payloadType = payload["type"] as? String
+        let role = payload["role"] as? String
+        let itemType = payload["item_type"] as? String
+        let message = payload["message"] as? String
+        let body = extractBody(from: payload)
+        let kind = classifyCodexBlock(envelopeType: envelopeType, payloadType: payloadType, role: role, itemType: itemType, body: body)
+        let title = titleFor(kind: kind, type: payloadType ?? envelopeType, itemType: itemType, payload: payload)
 
         guard !body.isEmpty || message != nil else {
             return nil
         }
 
         var metadata: [String: String] = [:]
-        metadata["type"] = type
+        metadata["envelopeType"] = envelopeType
+        metadata["payloadType"] = payloadType
         metadata["role"] = role
         metadata["itemType"] = itemType
+        metadata["name"] = payload["name"] as? String
 
         return AgentActivityBlock(
             kind: kind,
@@ -60,6 +64,47 @@ public struct CodexTranscriptParser: TranscriptParser {
 
         if let message = object["message"] as? String {
             return message
+        }
+
+        if let name = object["name"] as? String {
+            let arguments = object["arguments"] as? String
+            let output = object["output"] as? String
+            return [name, arguments, output]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+
+        if let output = object["output"] as? String {
+            return output
+        }
+
+        if let content = object["content"] as? [[String: Any]] {
+            let parts = content.compactMap { item -> String? in
+                if let text = item["text"] as? String {
+                    return text
+                }
+
+                if let output = item["output"] as? String {
+                    return output
+                }
+
+                return nil
+            }
+            let joined = parts.joined(separator: "\n")
+            if !joined.isEmpty {
+                return joined
+            }
+        }
+
+        if let summary = object["summary"] as? [[String: Any]] {
+            let parts = summary.compactMap { item -> String? in
+                item["text"] as? String
+            }
+            let joined = parts.joined(separator: "\n")
+            if !joined.isEmpty {
+                return joined
+            }
         }
 
         if let item = object["item"] as? [String: Any] {
@@ -83,8 +128,37 @@ public struct CodexTranscriptParser: TranscriptParser {
         return ""
     }
 
-    private func classifyCodexBlock(type: String?, role: String?, itemType: String?, body: String) -> AgentActivityKind {
-        let combined = [type, role, itemType, body].compactMap { $0?.lowercased() }.joined(separator: " ")
+    private func classifyCodexBlock(envelopeType: String?, payloadType: String?, role: String?, itemType: String?, body: String) -> AgentActivityKind {
+        switch payloadType {
+        case "message":
+            if role == "user" {
+                return .userMessage
+            }
+
+            if role == "assistant" {
+                return .assistantMessage
+            }
+        case "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output":
+            return .toolCall
+        case "reasoning":
+            return .thinking
+        case "plan", "todo_list":
+            return .plan
+        case "approval_request":
+            return .approval
+        default:
+            break
+        }
+
+        if role == "user" {
+            return .userMessage
+        }
+
+        if role == "assistant" {
+            return .assistantMessage
+        }
+
+        let combined = [envelopeType, payloadType, itemType, body].compactMap { $0?.lowercased() }.joined(separator: " ")
 
         if combined.contains("tool") || combined.contains("function") {
             return .toolCall
@@ -102,18 +176,10 @@ public struct CodexTranscriptParser: TranscriptParser {
             return .thinking
         }
 
-        if role == "user" {
-            return .userMessage
-        }
-
-        if role == "assistant" {
-            return .assistantMessage
-        }
-
         return .system
     }
 
-    private func titleFor(kind: AgentActivityKind, type: String?, itemType: String?) -> String {
+    private func titleFor(kind: AgentActivityKind, type: String?, itemType: String?, payload: [String: Any]) -> String {
         switch kind {
         case .userMessage:
             return "User"
@@ -122,7 +188,7 @@ public struct CodexTranscriptParser: TranscriptParser {
         case .thinking:
             return "Thinking"
         case .toolCall:
-            return "Tool Call"
+            return (payload["name"] as? String) ?? "Tool Call"
         case .plan:
             return "Plan"
         case .approval:

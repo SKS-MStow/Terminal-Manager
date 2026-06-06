@@ -42,3 +42,40 @@ public final actor StubRemoteShell: RemoteShell {
         return RemoteCommandResult(exitCode: 0, stdout: "")
     }
 }
+
+#if os(macOS)
+public final actor LocalShell: RemoteShell {
+    public init() {}
+
+    public func run(_ command: String) async throws -> RemoteCommandResult {
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.arguments = ["-lc", command]
+
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.standardOutput = stdout
+            process.standardError = stderr
+
+            process.terminationHandler = { process in
+                let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+                let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+                continuation.resume(
+                    returning: RemoteCommandResult(
+                        exitCode: process.terminationStatus,
+                        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+                        stderr: String(data: stderrData, encoding: .utf8) ?? ""
+                    )
+                )
+            }
+
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
+#endif
