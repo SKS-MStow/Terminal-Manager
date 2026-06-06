@@ -17,7 +17,11 @@ public final actor TerminalSessionController {
     }
 
     public func attach(to session: TerminalSession, size: TerminalSize) async throws {
-        try await pipeline.attach(to: session, size: size)
+        if attachedSession == nil {
+            try await pipeline.attach(to: session, size: size)
+        } else {
+            try await pipeline.switchClient(to: session)
+        }
         attachedSession = session
     }
 

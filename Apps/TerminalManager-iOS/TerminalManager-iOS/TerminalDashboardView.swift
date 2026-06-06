@@ -3,6 +3,7 @@ import TerminalManagerCore
 
 struct TerminalDashboardView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var viewModel = TerminalManagerViewModel()
 
@@ -38,6 +39,15 @@ struct TerminalDashboardView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else {
+                return
+            }
+
+            Task {
+                await viewModel.refreshTmuxSessions()
+            }
+        }
     }
 
     @ViewBuilder

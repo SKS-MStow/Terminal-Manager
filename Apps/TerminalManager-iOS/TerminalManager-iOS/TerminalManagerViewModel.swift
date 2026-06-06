@@ -59,6 +59,31 @@ final class TerminalManagerViewModel: ObservableObject {
 
     func toggleTmuxDrawer() {
         tmuxDrawerOpen.toggle()
+        if tmuxDrawerOpen {
+            Task {
+                await refreshTmuxSessions()
+            }
+        }
+    }
+
+    func refreshTmuxSessions() async {
+        do {
+            let refreshedSessions = try await runtime.refreshSessions()
+            guard !refreshedSessions.isEmpty else {
+                return
+            }
+
+            sessions = refreshedSessions
+            if let selected = refreshedSessions.first(where: { $0.tmuxSessionName == selectedSession.tmuxSessionName }) {
+                selectedSession = selected
+            } else if let first = refreshedSessions.first {
+                selectedSession = first
+            }
+            statusText = "\(refreshedSessions.count) tmux"
+        } catch {
+            statusText = "refresh failed"
+            appendTerminalText("tmux refresh failed: \(error)\n")
+        }
     }
 
     func sendComposerText() {

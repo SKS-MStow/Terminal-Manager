@@ -46,16 +46,18 @@ public final class TerminalPipeline: Sendable {
 
         let loadedSessions = try await tmuxSessions
         let loadedPanes = try await panes
-        let terminalSessions = loadedPanes.map { pane in
-            TerminalSession(
+        let panesBySession = Dictionary(grouping: loadedPanes, by: \.sessionName)
+        let terminalSessions = loadedSessions.map { tmuxSession in
+            let pane = panesBySession[tmuxSession.name]?.first
+            return TerminalSession(
                 hostId: host.id,
-                tmuxSessionName: pane.sessionName,
-                windowIndex: pane.windowIndex,
-                paneId: pane.paneId,
-                title: pane.title.isEmpty ? pane.sessionName : pane.title,
-                workingDirectory: pane.currentPath,
-                agent: Self.agentKind(for: pane),
-                transcript: transcriptCorrelator.bestMatch(for: pane, candidates: transcriptCandidates)
+                tmuxSessionName: tmuxSession.name,
+                windowIndex: pane?.windowIndex,
+                paneId: pane?.paneId,
+                title: Self.title(for: tmuxSession, pane: pane),
+                workingDirectory: pane?.currentPath,
+                agent: pane.flatMap(Self.agentKind(for:)),
+                transcript: pane.flatMap { transcriptCorrelator.bestMatch(for: $0, candidates: transcriptCandidates) }
             )
         }
 
@@ -71,6 +73,10 @@ public final class TerminalPipeline: Sendable {
         try await transport.connect(to: host, size: size)
         let attachCommand = tmux.attachCommand(sessionName: session.tmuxSessionName)
         try await sendLine(attachCommand)
+    }
+
+    public func switchClient(to session: TerminalSession) async throws {
+        try await transport.send(tmux.switchClientKeySequence(sessionName: session.tmuxSessionName))
     }
 
     public func sendUserText(_ text: String) async throws {
@@ -153,5 +159,13 @@ public final class TerminalPipeline: Sendable {
         }
 
         return nil
+    }
+
+    private static func title(for session: TmuxSession, pane: TmuxPane?) -> String {
+        guard let pane, !pane.title.isEmpty else {
+            return session.name
+        }
+
+        return pane.title
     }
 }

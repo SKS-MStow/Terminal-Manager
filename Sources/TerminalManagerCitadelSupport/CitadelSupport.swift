@@ -90,10 +90,7 @@ public final actor CitadelRemoteShell: RemoteShell {
     public func run(_ command: String) async throws -> RemoteCommandResult {
         let client = try await SSHClient.connect(to: try factory.settings(for: profile))
         do {
-            let streams = try await client.executeCommandPair(command)
-            async let stdout = collect(streams.stdout)
-            async let stderr = collect(streams.stderr)
-            let result = try await RemoteCommandResult(exitCode: 0, stdout: stdout, stderr: stderr)
+            let result = try await execute(command, using: client)
             try await client.close()
             return result
         } catch {
@@ -102,14 +99,24 @@ public final actor CitadelRemoteShell: RemoteShell {
         }
     }
 
-    private func collect(_ stream: AsyncThrowingStream<ByteBuffer, Error>) async throws -> String {
-        var result = ""
-        for try await var buffer in stream {
-            if let text = buffer.readString(length: buffer.readableBytes) {
-                result += text
+    private func execute(_ command: String, using client: SSHClient) async throws -> RemoteCommandResult {
+        let stream = try await client.executeCommandStream(command)
+        var stdout = ""
+        var stderr = ""
+
+        do {
+            for try await output in stream {
+                switch output {
+                case .stdout(var buffer):
+                    stdout += buffer.readString(length: buffer.readableBytes) ?? ""
+                case .stderr(var buffer):
+                    stderr += buffer.readString(length: buffer.readableBytes) ?? ""
+                }
             }
+            return RemoteCommandResult(exitCode: 0, stdout: stdout, stderr: stderr)
+        } catch let error as SSHClient.CommandFailed {
+            return RemoteCommandResult(exitCode: Int32(error.exitCode), stdout: stdout, stderr: stderr)
         }
-        return result
     }
 }
 

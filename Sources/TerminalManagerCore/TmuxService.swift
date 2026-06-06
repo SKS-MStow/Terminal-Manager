@@ -81,6 +81,11 @@ public final class TmuxService: Sendable {
         "tmux attach-session -t '\(Self.singleQuoteEscaped(sessionName))'"
     }
 
+    public func switchClientKeySequence(sessionName: String) -> Data {
+        let command = ":switch-client -t '\(Self.singleQuoteEscaped(sessionName))'\r"
+        return Data([0x02]) + Data(command.utf8)
+    }
+
     public func startAgentSessionCommand(agent: AgentKind, sessionName: String, workingDirectory: String, initialPrompt: String?) -> String {
         startAgentSessionCommands(agent: agent, sessionName: sessionName, workingDirectory: workingDirectory, initialPrompt: initialPrompt)
             .joined(separator: " && ")
