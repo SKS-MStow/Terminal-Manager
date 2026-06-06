@@ -317,6 +317,8 @@ struct TerminalManagerSelfCheck {
         try expect(snapshot.terminalSessions.count == 1, "expected E2E terminal session")
         let session = snapshot.terminalSessions[0]
         try expect(session.agent == .codex, "expected codex agent classification")
+        try expect(session.windowCount == 1, "expected tmux window count to carry into terminal session")
+        try expect(session.attachedCount == 1, "expected tmux attached count to carry into terminal session")
         try expect(session.transcript == transcript, "expected transcript correlation")
 
         try await pipeline.attach(to: session, size: TerminalSize(columns: 100, rows: 32))
@@ -388,6 +390,10 @@ struct TerminalManagerSelfCheck {
         try expect(output.contains("tmux attach-session -t 'work'"), "expected controller attach stream")
         try expect(output.contains("switch-client -t 'ops'"), "expected controller switch stream")
         try expect(output.contains("hello tmux"), "expected controller send stream")
+        try expect(session.windowCount == 1, "expected controller first session window count")
+        try expect(session.attachedCount == 0, "expected controller first session attached count")
+        try expect(secondSession.windowCount == 1, "expected controller second session window count")
+        try expect(secondSession.attachedCount == 0, "expected controller second session attached count")
         try expect(size == TerminalSize(columns: 88, rows: 28), "expected controller resize to reach transport")
         try expect(writes == [
             "tmux attach-session -t 'work'\r",

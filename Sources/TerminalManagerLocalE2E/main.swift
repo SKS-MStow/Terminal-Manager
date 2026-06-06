@@ -42,6 +42,8 @@ struct TerminalManagerLocalE2E {
             guard let session = snapshot.terminalSessions.first(where: { $0.tmuxSessionName == sessionName }) else {
                 throw LocalE2EFailure.assertion("temporary tmux session was not discovered")
             }
+            try expect(session.windowCount == 1, "temporary tmux session window count was not preserved")
+            try expect(session.attachedCount == 0, "temporary tmux session attached count was not preserved")
 
             let history = try await pipeline.capturedHistory(for: session, lineCount: 100)
             try expect(history.contains("terminal-manager-e2e"), "captured history did not include marker")
