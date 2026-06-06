@@ -1,4 +1,5 @@
 @preconcurrency import Citadel
+import CryptoKit
 import Foundation
 import NIO
 import NIOSSH
@@ -9,6 +10,7 @@ public enum CitadelSupportError: Error, Equatable {
     case unsupportedHostKeyPolicy(SSHHostKeyPolicy)
     case passwordNotAvailable(service: String, account: String)
     case unsafeHostKeyPolicyNotAllowed
+    case invalidPinnedHostKeyFingerprint(String)
     case invalidPrivateKey(path: String)
     case missingPrivateKey(path: String)
     case notConnected
@@ -67,8 +69,10 @@ public struct CitadelConnectionFactory: Sendable {
 
     private func hostKeyValidator(for policy: SSHHostKeyPolicy) throws -> SSHHostKeyValidator {
         switch policy {
-        case .knownHosts, .pinnedSHA256:
+        case .knownHosts:
             throw CitadelSupportError.unsupportedHostKeyPolicy(policy)
+        case .pinnedSHA256(let fingerprint):
+            return try .custom(PinnedSHA256HostKeyValidator(fingerprint: fingerprint))
         case .acceptAnyForSmokeOnly:
             guard allowUnsafeHostKeyPolicy else {
                 throw CitadelSupportError.unsafeHostKeyPolicyNotAllowed
@@ -77,6 +81,47 @@ public struct CitadelConnectionFactory: Sendable {
         }
     }
 }
+
+private struct PinnedSHA256HostKeyValidator: NIOSSHClientServerAuthenticationDelegate, Sendable {
+    private let expectedFingerprint: String
+
+    init(fingerprint: String) throws {
+        let normalized = Self.normalizedFingerprint(fingerprint)
+        guard !normalized.isEmpty else {
+            throw CitadelSupportError.invalidPinnedHostKeyFingerprint(fingerprint)
+        }
+        self.expectedFingerprint = normalized
+    }
+
+    func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+        var buffer = ByteBuffer()
+        hostKey.write(to: &buffer)
+
+        let digest = SHA256.hash(data: Data(buffer.readableBytesView))
+        let actualFingerprint = Data(digest)
+            .base64EncodedString()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+
+        if actualFingerprint == expectedFingerprint {
+            validationCompletePromise.succeed(())
+        } else {
+            validationCompletePromise.fail(PinnedHostKeyMismatch())
+        }
+    }
+
+    private static func normalizedFingerprint(_ fingerprint: String) -> String {
+        var trimmed = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let firstToken = trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" }).first {
+            trimmed = String(firstToken)
+        }
+        if trimmed.hasPrefix("SHA256:") {
+            trimmed.removeFirst("SHA256:".count)
+        }
+        return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "="))
+    }
+}
+
+private struct PinnedHostKeyMismatch: Error {}
 
 public final actor CitadelRemoteShell: RemoteShell {
     private let profile: SSHConnectionProfile
