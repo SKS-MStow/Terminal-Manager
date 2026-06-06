@@ -1,0 +1,27 @@
+name: TerminalManager
+
+options:
+  bundleIdPrefix: com.sksmstow
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  TerminalManagerPackage:
+    path: ../..
+
+targets:
+  Terminal Manager:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: TerminalManager-iOS
+    dependencies:
+      - package: TerminalManagerPackage
+        product: TerminalManagerCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sksmstow.TerminalManager
+        PRODUCT_NAME: Terminal Manager
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: TerminalManager-iOS/Info.plist
