@@ -251,7 +251,7 @@ private struct SessionStrip: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(sessions) { session in
-                    SessionChip(session: session, selected: session.id == selectedSession.id) {
+                    SessionChip(session: session, selected: session.tmuxSessionName == selectedSession.tmuxSessionName) {
                         onSelect(session)
                     }
                 }
@@ -279,7 +279,7 @@ private struct SessionSidebar: View {
             ScrollView {
                 LazyVStack(spacing: 8) {
                     ForEach(sessions) { session in
-                        SessionRow(session: session, selected: session.id == selectedSession.id) {
+                        SessionRow(session: session, selected: session.tmuxSessionName == selectedSession.tmuxSessionName) {
                             onSelect(session)
                         }
                     }
@@ -474,7 +474,7 @@ private struct TmuxSessionDrawer: View {
             ScrollView {
                 LazyVStack(spacing: 8) {
                     ForEach(sessions) { session in
-                        SessionRow(session: session, selected: session.id == selectedSession.id) {
+                        SessionRow(session: session, selected: session.tmuxSessionName == selectedSession.tmuxSessionName) {
                             onSelect(session)
                         }
                     }
