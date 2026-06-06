@@ -352,6 +352,74 @@ struct TerminalManagerSelfCheck {
         oscST.append("before\u{1B}]133;A\u{1B}\\after")
         try expect(oscST.lines == ["beforeafter"], "expected OSC control string ending in ST to be suppressed")
 
+        var grid = TerminalScrollbackBuffer(size: TerminalSize(columns: 5, rows: 3))
+        grid.append("abcde\nfghij\nklmno")
+        grid.append("\u{1B}[2;3HXY")
+        try expect(grid.lines == ["abcde", "fgXYj", "klmno"], "expected CSI H to position cursor in grid")
+
+        grid.reset()
+        grid.append("abcde\nfghij")
+        grid.append("\u{1B}[1;5fZ")
+        try expect(grid.lines.first == "abcdZ", "expected CSI f to position cursor in grid")
+
+        grid.reset()
+        grid.append("\u{1B}[H@")
+        try expect(grid.lines.first == "@", "expected CSI H with omitted parameters to home cursor")
+
+        grid.reset()
+        grid.append("\u{1B}[2;2Hab\u{1B}[1D_\u{1B}[1Bv\u{1B}[1A^\u{1B}[2C>")
+        try expect(grid.lines == ["", " a_ >", "   v"], "expected CSI A/B/C/D to move cursor in grid")
+
+        grid.reset()
+        grid.append("abcde\nfghij\nklmno")
+        grid.append("\u{1B}[2;3H\u{1B}[J")
+        try expect(grid.lines == ["abcde", "fg"], "expected CSI J to clear from cursor to display end")
+
+        grid.reset()
+        grid.append("abcde\nfghij\nklmno")
+        grid.append("\u{1B}[2;3H\u{1B}[1J")
+        try expect(grid.lines == ["", "   ij", "klmno"], "expected CSI 1J to clear from display start through cursor")
+
+        grid.reset()
+        grid.append("abcde\nfghij\nklmno")
+        grid.append("\u{1B}[2J")
+        try expect(grid.lines == [""], "expected CSI 2J to clear the display")
+
+        grid.reset()
+        grid.append("abcde")
+        grid.append("\u{1B}[1;3H\u{1B}[K")
+        try expect(grid.lines == ["ab"], "expected CSI K to clear to end of row")
+
+        grid.reset()
+        grid.append("abcde")
+        grid.append("\u{1B}[1;3H\u{1B}[1K")
+        try expect(grid.lines == ["   de"], "expected CSI 1K to clear through cursor")
+
+        grid.reset()
+        grid.append("abcde")
+        grid.append("\u{1B}[1;3H\u{1B}[2K")
+        try expect(grid.lines == [""], "expected CSI 2K to clear full row")
+
+        grid.reset()
+        grid.append("abc\rXY")
+        try expect(grid.lines == ["XYc"], "expected carriage return to redraw in grid")
+
+        grid.reset()
+        grid.append("abcdef")
+        try expect(grid.lines == ["abcde", "f"], "expected width wrapping to add a physical row")
+
+        var reflow = TerminalScrollbackBuffer(size: TerminalSize(columns: 10, rows: 3))
+        reflow.append("1234567890abcdefghij")
+        try expect(reflow.lines == ["1234567890", "abcdefghij"], "expected initial width wrapping")
+        reflow.resize(to: TerminalSize(columns: 5, rows: 3))
+        try expect(reflow.lines == ["12345", "67890", "abcde", "fghij"], "expected resize to reflow wrapped rows")
+
+        let resetWrapped = TerminalScrollbackBuffer(
+            lines: ["1234567890abcdef"],
+            size: TerminalSize(columns: 5, rows: 3)
+        )
+        try expect(resetWrapped.lines == ["12345", "67890", "abcde", "f"], "expected sized reset lines to wrap")
+
         var scrollback = TerminalScrollbackBuffer(maxLineCount: 3)
         scrollback.append("one\ntwo\nthree\nfour")
         try expect(scrollback.lines == ["two", "three", "four"], "expected scrollback to stay bounded")
