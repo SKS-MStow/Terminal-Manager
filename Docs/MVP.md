@@ -34,8 +34,9 @@
 - Read Codex transcript files.
 - Add Claude transcript support.
 - Correlate transcript to tmux pane.
-- Render collapsible activity blocks.
+- Parse raw activity blocks and render compacted, collapsible sidecar cards.
 - Allow manual transcript link/unlink.
+- Never fold or rewrite the terminal renderer; compaction is sidecar-only.
 
 ## M5 - Rich Input
 

@@ -20,6 +20,7 @@ struct TerminalManagerSelfCheck {
         try await checkCaptureHistory()
         try checkStartAgentCommand()
         try checkTranscriptParser()
+        try checkTranscriptCompaction()
         try checkTranscriptCorrelation()
         try checkAttachmentPath()
         try await checkRecordingTransport()
@@ -91,8 +92,8 @@ struct TerminalManagerSelfCheck {
     private static func checkTranscriptParser() throws {
         let lines = [
             #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I can do that."}]}}"#,
-            #"{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}"#,
-            #"{"type":"response_item","payload":{"type":"function_call_output","output":"/Users/mark/Github/Terminal-Manager"}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"call_1","arguments":"{\"cmd\":\"pwd\"}"}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"/Users/mark/Github/Terminal-Manager"}}"#,
             #"{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"thinking through approach"}]}}"#
         ].joined(separator: "\n")
         let blocks = try CodexTranscriptParser().parse(Data(lines.utf8), agent: .codex)
@@ -101,8 +102,70 @@ struct TerminalManagerSelfCheck {
         try expect(blocks[0].kind == .assistantMessage, "expected assistant block")
         try expect(blocks[1].kind == .toolCall, "expected tool block")
         try expect(blocks[1].title == "exec_command", "expected tool title")
+        try expect(blocks[1].metadata["callId"] == "call_1", "expected tool call id metadata")
         try expect(blocks[2].kind == .toolCall, "expected tool output block")
+        try expect(blocks[2].title == "Tool Output", "expected tool output title")
         try expect(blocks[3].kind == .thinking, "expected thinking block")
+    }
+
+    private static func checkTranscriptCompaction() throws {
+        let longOutput = String(repeating: "tool-output-", count: 40)
+        let lines = [
+            #"{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"checking repo"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"choosing patch"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"call_7","arguments":"{\"cmd\":\"pwd\"}"}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_7","status":"completed","output":""# + longOutput + #""}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}"#
+        ].joined(separator: "\n")
+        let blocks = try CodexTranscriptParser().parse(Data(lines.utf8), agent: .codex)
+        let compactor = AgentActivityCompactor(maxPreviewCharacters: 120)
+        let cards = compactor.compact(blocks)
+
+        try expect(cards.count == 3, "expected compacted thinking, tool, and assistant cards")
+        try expect(cards[0].kind == .thinking, "expected thinking card")
+        try expect(cards[0].blockCount == 2, "expected merged thinking blocks")
+        try expect(cards[0].preview.contains("checking repo"), "expected first reasoning preview")
+        try expect(cards[0].preview.contains("choosing patch"), "expected second reasoning preview")
+        try expect(cards[0].metadata["sourceKinds"] == "thinking", "expected thinking source kind metadata")
+        try expect(cards[0].metadata["hiddenBlockCount"] == "1", "expected thinking hidden block count")
+
+        try expect(cards[1].kind == .toolCall, "expected tool card")
+        try expect(cards[1].title == "exec_command", "expected tool card title")
+        try expect(cards[1].blockCount == 2, "expected paired tool call and output")
+        try expect(cards[1].metadata["compactionKey"] == "tool:call_7", "expected call id compaction key")
+        try expect(cards[1].metadata["callId"] == "call_7", "expected card call id metadata")
+        try expect(cards[1].metadata["status"] == "completed", "expected card status metadata")
+        try expect(cards[1].metadata["toolNames"] == "exec_command", "expected tool name metadata")
+        try expect(cards[1].metadata["sourceKinds"] == "toolCall", "expected tool source kind metadata")
+        try expect((Int(cards[1].metadata["hiddenCharacterCount"] ?? "0") ?? 0) > 0, "expected hidden character count")
+        try expect(cards[1].preview.hasSuffix("..."), "expected truncated tool preview")
+        try expect(cards[1].sourceBlockIds == blocks[2...3].map(\.id), "expected retained source block ids")
+        let expandedToolBlocks = compactor.expandedBlocks(for: cards[1], in: blocks)
+        try expect(expandedToolBlocks.count == 2, "expected expandable tool block ids")
+
+        try expect(cards[2].kind == .assistantMessage, "expected assistant card")
+        try expect(cards[2].blockCount == 1, "expected assistant card to remain separate")
+
+        let pipeline = TerminalPipeline(
+            host: HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark"),
+            tmux: TmuxService(shell: StubRemoteShell()),
+            transport: RecordingTerminalTransport()
+        )
+        let pipelineCards = try pipeline.compactTranscript(Data(lines.utf8), compactor: compactor)
+        try expect(pipelineCards.map(\.kind) == cards.map(\.kind), "expected pipeline helper card kinds")
+        try expect(pipelineCards.map(\.title) == cards.map(\.title), "expected pipeline helper card titles")
+        try expect(pipelineCards.map(\.preview) == cards.map(\.preview), "expected pipeline helper card previews")
+        try expect(pipelineCards.map(\.blockCount) == cards.map(\.blockCount), "expected pipeline helper block counts")
+
+        let unkeyedToolBlocks = [
+            AgentActivityBlock(kind: .toolCall, title: "exec_command", body: #"{"cmd":"pwd"}"#),
+            AgentActivityBlock(kind: .toolCall, title: "Tool Output", body: "/Users/mark/Github/Terminal-Manager"),
+            AgentActivityBlock(kind: .toolCall, title: "exec_command", body: #"{"cmd":"date"}"#)
+        ]
+        let unkeyedToolCards = AgentActivityCompactor().compact(unkeyedToolBlocks)
+        try expect(unkeyedToolCards.count == 2, "expected adjacent unkeyed tool output pairing only")
+        try expect(unkeyedToolCards[0].blockCount == 2, "expected first unkeyed tool output to pair")
+        try expect(unkeyedToolCards[1].blockCount == 1, "expected next unkeyed tool call to remain separate")
     }
 
     private static func checkTranscriptCorrelation() throws {

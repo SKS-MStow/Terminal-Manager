@@ -48,13 +48,36 @@ public struct CodexTranscriptParser: TranscriptParser {
         metadata["role"] = role
         metadata["itemType"] = itemType
         metadata["name"] = payload["name"] as? String
+        metadata["callId"] = (payload["call_id"] as? String) ?? (payload["callId"] as? String)
+        metadata["itemId"] = (payload["id"] as? String) ?? (payload["item_id"] as? String)
+        metadata["status"] = payload["status"] as? String
+        metadata["arguments"] = payload["arguments"] as? String
+        metadata["output"] = payload["output"] as? String
+        metadata["createdAt"] = (payload["created_at"] as? String) ?? (payload["createdAt"] as? String)
 
         return AgentActivityBlock(
             kind: kind,
             title: title,
             body: body.isEmpty ? (message ?? "") : body,
-            metadata: metadata.compactMapValues { $0 }
+            metadata: metadata.compactMapValues { $0 },
+            createdAt: Self.createdAt(from: payload)
         )
+    }
+
+    private static func createdAt(from payload: [String: Any]) -> Date? {
+        if let timestamp = payload["created_at"] as? TimeInterval {
+            return Date(timeIntervalSince1970: timestamp)
+        }
+
+        if let timestamp = payload["createdAt"] as? TimeInterval {
+            return Date(timeIntervalSince1970: timestamp)
+        }
+
+        if let value = (payload["created_at"] as? String) ?? (payload["createdAt"] as? String) {
+            return ISO8601DateFormatter().date(from: value)
+        }
+
+        return nil
     }
 
     private func extractBody(from object: [String: Any]) -> String {
@@ -188,6 +211,10 @@ public struct CodexTranscriptParser: TranscriptParser {
         case .thinking:
             return "Thinking"
         case .toolCall:
+            if type == "function_call_output" || type == "custom_tool_call_output" {
+                return "Tool Output"
+            }
+
             return (payload["name"] as? String) ?? "Tool Call"
         case .plan:
             return "Plan"
@@ -198,6 +225,205 @@ public struct CodexTranscriptParser: TranscriptParser {
         case .system:
             return itemType ?? type ?? "System"
         }
+    }
+}
+
+public struct AgentActivityCompactionOptions: Equatable, Sendable {
+    public var maxPreviewCharacters: Int
+    public var mergeConsecutiveSystemBlocks: Bool
+    public var mergeConsecutiveThinkingBlocks: Bool
+    public var mergeConsecutivePlanBlocks: Bool
+
+    public init(
+        maxPreviewCharacters: Int = 320,
+        mergeConsecutiveSystemBlocks: Bool = true,
+        mergeConsecutiveThinkingBlocks: Bool = true,
+        mergeConsecutivePlanBlocks: Bool = true
+    ) {
+        self.maxPreviewCharacters = maxPreviewCharacters
+        self.mergeConsecutiveSystemBlocks = mergeConsecutiveSystemBlocks
+        self.mergeConsecutiveThinkingBlocks = mergeConsecutiveThinkingBlocks
+        self.mergeConsecutivePlanBlocks = mergeConsecutivePlanBlocks
+    }
+}
+
+public struct AgentActivityCompactor: Sendable {
+    public var options: AgentActivityCompactionOptions
+
+    public init(options: AgentActivityCompactionOptions = AgentActivityCompactionOptions()) {
+        self.options = options
+    }
+
+    public init(maxPreviewCharacters: Int) {
+        self.options = AgentActivityCompactionOptions(maxPreviewCharacters: maxPreviewCharacters)
+    }
+
+    public func compact(_ blocks: [AgentActivityBlock]) -> [CompactedAgentActivityCard] {
+        var cards: [CompactedAgentActivityCard] = []
+        var pendingGroup: ActivityGroup?
+
+        for block in blocks {
+            let key = groupKey(for: block)
+
+            if var group = pendingGroup,
+               block.kind == .toolCall,
+               block.title == "Tool Output",
+               block.metadata["callId"] == nil,
+               block.metadata["itemId"] == nil,
+               group.blocks.last?.kind == .toolCall {
+                group.blocks.append(block)
+                pendingGroup = group
+                continue
+            }
+
+            if var group = pendingGroup, group.key == key {
+                group.blocks.append(block)
+                pendingGroup = group
+                continue
+            }
+
+            if let pendingGroup {
+                cards.append(card(for: pendingGroup))
+            }
+
+            pendingGroup = ActivityGroup(key: key, blocks: [block])
+        }
+
+        if let pendingGroup {
+            cards.append(card(for: pendingGroup))
+        }
+
+        return cards
+    }
+
+    public func expandedBlocks(for card: CompactedAgentActivityCard, in blocks: [AgentActivityBlock]) -> [AgentActivityBlock] {
+        let ids = Set(card.sourceBlockIds)
+        return blocks.filter { ids.contains($0.id) }
+    }
+
+    private func groupKey(for block: AgentActivityBlock) -> String {
+        if block.kind == .toolCall {
+            if let callId = block.metadata["callId"] {
+                return "tool:\(callId)"
+            }
+
+            if let itemId = block.metadata["itemId"] {
+                return "tool:\(itemId)"
+            }
+
+            return "tool:\(block.id.uuidString)"
+        }
+
+        switch block.kind {
+        case .thinking where options.mergeConsecutiveThinkingBlocks:
+            return block.kind.rawValue
+        case .plan where options.mergeConsecutivePlanBlocks:
+            return block.kind.rawValue
+        case .system where options.mergeConsecutiveSystemBlocks:
+            return block.kind.rawValue
+        default:
+            return "\(block.kind.rawValue):\(block.id.uuidString)"
+        }
+    }
+
+    private func card(for group: ActivityGroup) -> CompactedAgentActivityCard {
+        let first = group.blocks[0]
+        let title = title(for: group.blocks, fallback: first.title)
+        let preview = preview(for: group.blocks)
+        var metadata = first.metadata
+        metadata["compactionKey"] = group.key
+        metadata["sourceKinds"] = joinedUnique(group.blocks.map { $0.kind.rawValue })
+        metadata["toolNames"] = joinedUnique(toolNames(from: group.blocks))
+        metadata["hiddenCharacterCount"] = String(hiddenCharacterCount(for: group.blocks, preview: preview))
+        metadata["hiddenBlockCount"] = String(max(0, group.blocks.count - 1))
+        metadata["status"] = group.blocks.reversed().compactMap { $0.metadata["status"] }.first
+        metadata["callId"] = group.blocks.compactMap { $0.metadata["callId"] }.first
+
+        if group.blocks.count > 1 {
+            metadata["blockCount"] = String(group.blocks.count)
+        }
+
+        return CompactedAgentActivityCard(
+            kind: first.kind,
+            title: title,
+            preview: preview,
+            blockCount: group.blocks.count,
+            sourceBlockIds: group.blocks.map(\.id),
+            metadata: metadata.compactMapValues { $0 },
+            createdAt: first.createdAt
+        )
+    }
+
+    private func title(for blocks: [AgentActivityBlock], fallback: String) -> String {
+        if blocks[0].kind == .toolCall {
+            return blocks.first { block in
+                block.title != "Tool Call" && block.title != "Tool Output"
+            }?.title ?? fallback
+        }
+
+        return fallback
+    }
+
+    private func preview(for blocks: [AgentActivityBlock]) -> String {
+        let joined = blocks
+            .map { block in
+                if blocks.count == 1 {
+                    return block.body
+                }
+
+                return "\(block.title)\n\(block.body)"
+            }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return truncate(joined)
+    }
+
+    private func truncate(_ text: String) -> String {
+        guard text.count > options.maxPreviewCharacters else {
+            return text
+        }
+
+        let end = text.index(text.startIndex, offsetBy: options.maxPreviewCharacters)
+        return String(text[..<end]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+    }
+
+    private func hiddenCharacterCount(for blocks: [AgentActivityBlock], preview: String) -> Int {
+        let bodyCount = blocks.reduce(0) { partialResult, block in
+            partialResult + block.body.count
+        }
+
+        return max(0, bodyCount - preview.count)
+    }
+
+    private func toolNames(from blocks: [AgentActivityBlock]) -> [String] {
+        blocks
+            .filter { $0.kind == .toolCall }
+            .map(\.title)
+            .filter { $0 != "Tool Call" && $0 != "Tool Output" }
+    }
+
+    private func joinedUnique(_ values: [String]) -> String? {
+        var seen = Set<String>()
+        let uniqueValues = values.filter { value in
+            guard !value.isEmpty, !seen.contains(value) else {
+                return false
+            }
+
+            seen.insert(value)
+            return true
+        }
+
+        guard !uniqueValues.isEmpty else {
+            return nil
+        }
+
+        return uniqueValues.joined(separator: ",")
+    }
+
+    private struct ActivityGroup {
+        var key: String
+        var blocks: [AgentActivityBlock]
     }
 }
 
