@@ -87,6 +87,8 @@ final class TerminalManagerViewModel: ObservableObject {
         }
 
         terminalSize = size
+        terminalBuffer.resize(to: size)
+        terminalLines = terminalBuffer.lines
         Task {
             await resizeTerminal(to: size)
         }

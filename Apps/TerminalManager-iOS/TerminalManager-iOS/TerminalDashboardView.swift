@@ -538,6 +538,9 @@ private struct TerminalSurface: View {
                 .onChange(of: lines.count) { _, _ in
                     scrollToBottom(proxy)
                 }
+                .onChange(of: lines.last) { _, _ in
+                    scrollToBottom(proxy)
+                }
             }
         }
         .background(.black)
