@@ -121,6 +121,7 @@ final class TerminalManagerViewModel: ObservableObject {
 
     func refreshTmuxSessions() async {
         do {
+            let previousSelectedName = selectedSession.tmuxSessionName
             let refreshedSessions = try await runtime.refreshSessions()
             sessions = refreshedSessions
             guard !refreshedSessions.isEmpty else {
@@ -135,6 +136,10 @@ final class TerminalManagerViewModel: ObservableObject {
                 selectedSession = first
             }
             statusText = "\(refreshedSessions.count) tmux"
+
+            if selectedSession.tmuxSessionName != previousSelectedName {
+                await attachSelectedSession()
+            }
         } catch {
             statusText = "refresh failed"
             appendTerminalText("tmux refresh failed: \(error)\n")
@@ -195,6 +200,10 @@ final class TerminalManagerViewModel: ObservableObject {
 
     private func rebuildRuntime() {
         terminalStreamTask?.cancel()
+        let oldRuntime = runtime
+        Task {
+            await oldRuntime.disconnect()
+        }
         runtime = TerminalAppRuntimeFactory.makeDefaultRuntime(connectionStore: connectionStore)
         startTerminalStream()
     }

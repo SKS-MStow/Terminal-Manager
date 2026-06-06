@@ -27,6 +27,7 @@ struct TerminalManagerSelfCheck {
         try await checkRecordingTransport()
         try checkTerminalScrollbackBuffer()
         try checkTerminalInputKeyBytes()
+        try checkTerminalUTF8StreamDecoder()
         try checkTerminalGridMetrics()
         try await checkTerminalPipelineE2E()
         try await checkTerminalSessionController()
@@ -53,9 +54,9 @@ struct TerminalManagerSelfCheck {
 
     private static func checkTmuxPaneParsing() async throws {
         let shell = StubRemoteShell(responses: [
-            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}'": RemoteCommandResult(
                 exitCode: 0,
-                stdout: "codex-sks\t0\t%1\tEditor\tcodex\t/Users/mark/Github/sks-submissions\n"
+                stdout: "codex-sks\t0\t%1\tEditor\tcodex\t/Users/mark/Github/sks-submissions\t1\t1\n"
             )
         ])
         let service = TmuxService(shell: shell)
@@ -65,6 +66,8 @@ struct TerminalManagerSelfCheck {
         try expect(panes[0].paneId == "%1", "expected pane id")
         try expect(panes[0].currentCommand == "codex", "expected pane command")
         try expect(panes[0].currentPath == "/Users/mark/Github/sks-submissions", "expected pane cwd")
+        try expect(panes[0].isActiveWindow, "expected active window flag")
+        try expect(panes[0].isActivePane, "expected active pane flag")
     }
 
     private static func checkCaptureHistory() async throws {
@@ -301,6 +304,29 @@ struct TerminalManagerSelfCheck {
         try expect(TerminalInputKey.backspace.bytes == Data([0x7F]), "expected backspace byte")
     }
 
+    private static func checkTerminalUTF8StreamDecoder() throws {
+        var decoder = TerminalUTF8StreamDecoder()
+        try expect(decoder.append(Data("hello ".utf8)) == "hello ", "expected ASCII to decode immediately")
+
+        let prompt = Data("世界 %".utf8)
+        try expect(decoder.append(prompt.prefix(1)) == "", "expected partial multibyte sequence to buffer")
+        try expect(decoder.append(prompt.dropFirst(1).prefix(2)) == "世", "expected buffered sequence to complete")
+        try expect(decoder.append(prompt.dropFirst(3)) == "界 %", "expected remaining multibyte text")
+        try expect(decoder.finish().isEmpty, "expected no pending bytes after complete input")
+
+        var invalid = TerminalUTF8StreamDecoder()
+        try expect(invalid.append(Data([0xFF])) == "\u{FFFD}", "expected invalid byte replacement")
+        try expect(invalid.append(Data([0xE2, 0x82])) == "", "expected incomplete sequence to buffer")
+        try expect(invalid.finish() == "\u{FFFD}", "expected incomplete final sequence replacement")
+
+        var controlAfterInvalid = TerminalUTF8StreamDecoder()
+        try expect(controlAfterInvalid.append(Data([0xE2])) == "", "expected corrupt lead byte to buffer until next byte")
+        try expect(
+            controlAfterInvalid.append(Data("\u{1B}[K".utf8)) == "\u{FFFD}\u{1B}[K",
+            "expected control sequence after corrupt UTF-8 lead byte to emit immediately"
+        )
+    }
+
     private static func checkTerminalScrollbackBuffer() throws {
         var redraw = TerminalScrollbackBuffer()
         redraw.append("progress 10%")
@@ -314,6 +340,18 @@ struct TerminalManagerSelfCheck {
         cursor.append("abcdef\u{1B}[3DXYZ")
         try expect(cursor.lines == ["abcXYZ"], "expected CSI cursor-left overwrite to be handled")
 
+        var clearBeforeCursor = TerminalScrollbackBuffer()
+        clearBeforeCursor.append("abcdef\u{1B}[3D\u{1B}[1K")
+        try expect(clearBeforeCursor.lines == ["    ef"], "expected CSI 1K to blank through cursor without shifting tail")
+
+        var oscBEL = TerminalScrollbackBuffer()
+        oscBEL.append("\u{1B}]0;tmux title\u{07}prompt")
+        try expect(oscBEL.lines == ["prompt"], "expected OSC title ending in BEL to be suppressed")
+
+        var oscST = TerminalScrollbackBuffer()
+        oscST.append("before\u{1B}]133;A\u{1B}\\after")
+        try expect(oscST.lines == ["beforeafter"], "expected OSC control string ending in ST to be suppressed")
+
         var scrollback = TerminalScrollbackBuffer(maxLineCount: 3)
         scrollback.append("one\ntwo\nthree\nfour")
         try expect(scrollback.lines == ["two", "three", "four"], "expected scrollback to stay bounded")
@@ -326,15 +364,15 @@ struct TerminalManagerSelfCheck {
                 exitCode: 0,
                 stdout: "codex-sks\t1\t1\n"
             ),
-            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}'": RemoteCommandResult(
                 exitCode: 0,
                 stdout: """
-                codex-sks\t0\t%1\tCodex\tcodex\t/Users/mark/Github/Terminal-Manager
-                codex-sks\t1\t%2\tLogs\tzsh\t/Users/mark/Github/Terminal-Manager
+                codex-sks\t0\t%1\tLogs\tzsh\t/Users/mark/Github/Terminal-Manager\t0\t0
+                codex-sks\t1\t%2\tCodex\tcodex\t/Users/mark/Github/Terminal-Manager\t1\t1
 
                 """
             ),
-            "tmux capture-pane -p -t '%1' -S -100": RemoteCommandResult(
+            "tmux capture-pane -p -t '%2' -S -100": RemoteCommandResult(
                 exitCode: 0,
                 stdout: "codex thinking\ncodex output\n"
             )
@@ -354,6 +392,8 @@ struct TerminalManagerSelfCheck {
         try expect(snapshot.terminalSessions.count == 1, "expected E2E terminal session")
         let session = snapshot.terminalSessions[0]
         try expect(session.agent == .codex, "expected codex agent classification")
+        try expect(session.paneId == "%2", "expected active pane to represent terminal session")
+        try expect(session.title == "Codex", "expected active pane title")
         try expect(session.windowCount == 1, "expected tmux window count to carry into terminal session")
         try expect(session.attachedCount == 1, "expected tmux attached count to carry into terminal session")
         try expect(session.transcript == transcript, "expected transcript correlation")
@@ -385,9 +425,9 @@ struct TerminalManagerSelfCheck {
                 exitCode: 0,
                 stdout: "work\t1\t0\nops\t1\t0\n"
             ),
-            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}'": RemoteCommandResult(
                 exitCode: 0,
-                stdout: "work\t0\t%4\tWork\tzsh\t/Users/mark\nops\t0\t%5\tOps\tzsh\t/Users/mark\n"
+                stdout: "work\t0\t%4\tWork\tzsh\t/Users/mark\t1\t1\nops\t0\t%5\tOps\tzsh\t/Users/mark\t1\t1\n"
             )
         ])
         let transport = RecordingTerminalTransport()
@@ -424,8 +464,12 @@ struct TerminalManagerSelfCheck {
         try await controller.sendUserText("hello tmux")
         try await controller.sendTerminalBytes(TerminalInputKey.controlC.bytes)
         let output = try await reader.value
-        let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
         let size = await transport.currentSize()
+
+        await transport.disconnect()
+        try await controller.attach(to: session, size: TerminalSize(columns: 72, rows: 20))
+
+        let writes = await transport.recordedWrites().compactMap { String(data: $0, encoding: .utf8) }
 
         try expect(output.contains("tmux attach-session -t 'work'"), "expected controller attach stream")
         try expect(output.contains("switch-client -t 'ops'"), "expected controller switch stream")
@@ -439,8 +483,9 @@ struct TerminalManagerSelfCheck {
             "tmux attach-session -t 'work'\r",
             "\u{02}:switch-client -t 'ops'\r",
             "hello tmux\r",
-            "\u{03}"
-        ], "expected controller writes")
+            "\u{03}",
+            "tmux attach-session -t 'work'\r"
+        ], "expected controller writes, including reconnect attach after transport disconnect")
     }
 
     private static func checkOpenSSHArguments() throws {

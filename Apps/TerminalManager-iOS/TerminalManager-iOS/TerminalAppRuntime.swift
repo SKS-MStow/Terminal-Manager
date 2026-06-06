@@ -18,6 +18,7 @@ protocol TerminalAppRuntime: Sendable {
     func sendUserText(_ text: String) async throws
     func sendTerminalBytes(_ bytes: Data) async throws
     func terminalTextStream() -> AsyncThrowingStream<String, Error>
+    func disconnect() async
 }
 
 enum TerminalAppRuntimeFactory {
@@ -160,21 +161,7 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
     }
 
     nonisolated func terminalTextStream() -> AsyncThrowingStream<String, Error> {
-        let byteStream = controller.screenBytes()
-        return AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    for try await data in byteStream {
-                        if let text = String(data: data, encoding: .utf8), !text.isEmpty {
-                            continuation.yield(text)
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
+        decodedTerminalTextStream(from: controller.screenBytes())
     }
 
     func bootstrap() async throws -> TerminalAppBootstrap {
@@ -222,6 +209,10 @@ final actor LiveSSHTerminalAppRuntime: TerminalAppRuntime {
     func sendTerminalBytes(_ bytes: Data) async throws {
         try await controller.sendTerminalBytes(bytes)
     }
+
+    func disconnect() async {
+        await controller.disconnect()
+    }
 }
 
 final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
@@ -243,21 +234,7 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
     }
 
     nonisolated func terminalTextStream() -> AsyncThrowingStream<String, Error> {
-        let byteStream = transport.screenBytes()
-        return AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    for try await data in byteStream {
-                        if let text = String(data: data, encoding: .utf8), !text.isEmpty {
-                            continuation.yield(text)
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
+        decodedTerminalTextStream(from: transport.screenBytes())
     }
 
     func bootstrap() async throws -> TerminalAppBootstrap {
@@ -294,6 +271,10 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
         try await controller.sendTerminalBytes(bytes)
     }
 
+    func disconnect() async {
+        await controller.disconnect()
+    }
+
     private static func tmuxResponses(for sessions: [TerminalSession]) -> [String: RemoteCommandResult] {
         let sessionRows = sessions
             .map { session in
@@ -311,7 +292,9 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
                     session.paneId ?? "%\(index + 1)",
                     session.title,
                     command,
-                    session.workingDirectory ?? "~"
+                    session.workingDirectory ?? "~",
+                    session.tmuxSessionName == sessions.first?.tmuxSessionName ? "1" : "0",
+                    "1"
                 ].joined(separator: "\t")
             }
             .joined(separator: "\n")
@@ -321,10 +304,49 @@ final actor FixtureTerminalAppRuntime: TerminalAppRuntime {
                 exitCode: 0,
                 stdout: sessionRows + "\n"
             ),
-            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}'": RemoteCommandResult(
+            "tmux list-panes -a -F '#S\t#I\t#D\t#T\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}'": RemoteCommandResult(
                 exitCode: 0,
                 stdout: paneRows + "\n"
             )
         ]
+    }
+}
+
+private func decodedTerminalTextStream(
+    from byteStream: AsyncThrowingStream<Data, Error>
+) -> AsyncThrowingStream<String, Error> {
+    AsyncThrowingStream { continuation in
+        let task = Task {
+            var decoder = TerminalUTF8StreamDecoder()
+            do {
+                for try await data in byteStream {
+                    guard !Task.isCancelled else {
+                        continuation.finish()
+                        return
+                    }
+
+                    let text = decoder.append(data)
+                    if !text.isEmpty {
+                        continuation.yield(text)
+                    }
+                }
+
+                let remaining = decoder.finish()
+                if !remaining.isEmpty {
+                    continuation.yield(remaining)
+                }
+                continuation.finish()
+            } catch {
+                let remaining = decoder.finish()
+                if !remaining.isEmpty {
+                    continuation.yield(remaining)
+                }
+                continuation.finish(throwing: error)
+            }
+        }
+
+        continuation.onTermination = { _ in
+            task.cancel()
+        }
     }
 }
