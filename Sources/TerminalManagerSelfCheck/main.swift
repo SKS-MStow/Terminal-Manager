@@ -25,6 +25,7 @@ struct TerminalManagerSelfCheck {
         try await checkRecordingTransport()
         try await checkTerminalPipelineE2E()
         try checkOpenSSHArguments()
+        try checkSSHAuthPolicy()
         print("Terminal Manager self-check passed")
     }
 
@@ -221,11 +222,37 @@ struct TerminalManagerSelfCheck {
         try expect(shellArgs.contains("mark@marks-macbook-air.tail79ccb5.ts.net"), "expected SSH destination")
         try expect(shellArgs.contains("2222"), "expected SSH port")
         try expect(shellArgs.contains("BatchMode=yes"), "expected batch mode")
+        try expect(shellArgs.contains("StrictHostKeyChecking=yes"), "expected safe host key policy")
 
         let terminalArgs = OpenSSHCommandBuilder.terminalArguments(for: host)
         try expect(terminalArgs.contains("-tt"), "expected forced TTY")
         try expect(!terminalArgs.contains("BatchMode=yes"), "expected interactive terminal auth")
+
+        let smokeConfig = OpenSSHConfiguration.smokeTest(
+            userKnownHostsFile: "/tmp/terminal-manager-known-hosts",
+            identityFile: "/Users/mark/.ssh/id_ed25519",
+            configFile: "/Users/mark/.ssh/config",
+            extraOptions: ["-o", "LogLevel=ERROR"]
+        )
+        let smokeArgs = OpenSSHCommandBuilder.remoteShellArguments(for: host, configuration: smokeConfig)
+        try expect(smokeArgs.contains("StrictHostKeyChecking=accept-new"), "expected explicit smoke host-key policy")
+        try expect(smokeArgs.contains("UserKnownHostsFile=/tmp/terminal-manager-known-hosts"), "expected smoke known-hosts file")
+        try expect(smokeArgs.contains("-i"), "expected identity file flag")
+        try expect(smokeArgs.contains("/Users/mark/.ssh/id_ed25519"), "expected identity file path")
+        try expect(smokeArgs.contains("IdentitiesOnly=yes"), "expected identities-only option")
+        try expect(smokeArgs.contains("-F"), "expected config file flag")
+        try expect(smokeArgs.contains("/Users/mark/.ssh/config"), "expected config file path")
+        try expect(smokeArgs.contains("LogLevel=ERROR"), "expected extra option")
         #endif
+    }
+
+    private static func checkSSHAuthPolicy() throws {
+        let host = HostProfile(displayName: "Mac", hostname: "mac.tailnet.ts.net", username: "mark")
+        let profile = SSHConnectionProfile(host: host)
+        try expect(profile.authentication == .agent, "expected agent auth default")
+        try expect(profile.hostKeyPolicy == .knownHosts, "expected safe host-key default")
+        try expect(!profile.hostKeyPolicy.isUnsafe, "default host-key policy must not be unsafe")
+        try expect(SSHHostKeyPolicy.acceptAnyForSmokeOnly.isUnsafe, "smoke-only policy should be marked unsafe")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {

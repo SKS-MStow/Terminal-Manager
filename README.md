@@ -44,6 +44,7 @@ executable instead of a Swift test target for now:
 swift build
 swift run terminal-manager-selfcheck
 swift run terminal-manager-local-e2e
+swift run terminal-manager-ssh-smoke
 ```
 
 `terminal-manager-local-e2e` is a live smoke test against local `tmux`: it
@@ -59,8 +60,9 @@ swift run terminal-manager-local-e2e
 ```
 
 This requires SSH credentials to be configured for non-interactive command
-execution. The current iOS-target transport plan is SwiftTerm for rendering plus
-Citadel for SSH once full Xcode is selected.
+execution. `terminal-manager-ssh-smoke` uses the same environment variables and
+skips cleanly when they are absent. The current iOS-target transport plan is
+SwiftTerm for rendering plus Citadel for SSH once full Xcode is selected.
 
 The iOS app target needs full Xcode selected, not only Command Line Tools:
 
