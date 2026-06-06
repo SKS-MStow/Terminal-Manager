@@ -20,6 +20,10 @@ let package = Package(
         .executable(
             name: "terminal-manager-local-e2e",
             targets: ["TerminalManagerLocalE2E"]
+        ),
+        .executable(
+            name: "terminal-manager-ssh-smoke",
+            targets: ["TerminalManagerSSHSmoke"]
         )
     ],
     targets: [
@@ -32,6 +36,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "TerminalManagerLocalE2E",
+            dependencies: ["TerminalManagerCore"]
+        ),
+        .executableTarget(
+            name: "TerminalManagerSSHSmoke",
             dependencies: ["TerminalManagerCore"]
         )
     ]

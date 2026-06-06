@@ -5,21 +5,52 @@ public struct OpenSSHConfiguration: Equatable, Sendable {
     public var executablePath: String
     public var connectTimeoutSeconds: Int
     public var batchMode: Bool
-    public var strictHostKeyChecking: String?
+    public var hostKeyPolicy: SSHHostKeyPolicy
+    public var userKnownHostsFile: String?
+    public var identityFile: String?
+    public var configFile: String?
+    public var strictHostKeyCheckingOverride: String?
     public var extraOptions: [String]
 
     public init(
         executablePath: String = "/usr/bin/ssh",
         connectTimeoutSeconds: Int = 5,
         batchMode: Bool = true,
-        strictHostKeyChecking: String? = "accept-new",
+        hostKeyPolicy: SSHHostKeyPolicy = .knownHosts,
+        userKnownHostsFile: String? = nil,
+        identityFile: String? = nil,
+        configFile: String? = nil,
+        strictHostKeyCheckingOverride: String? = nil,
         extraOptions: [String] = []
     ) {
         self.executablePath = executablePath
         self.connectTimeoutSeconds = connectTimeoutSeconds
         self.batchMode = batchMode
-        self.strictHostKeyChecking = strictHostKeyChecking
+        self.hostKeyPolicy = hostKeyPolicy
+        self.userKnownHostsFile = userKnownHostsFile
+        self.identityFile = identityFile
+        self.configFile = configFile
+        self.strictHostKeyCheckingOverride = strictHostKeyCheckingOverride
         self.extraOptions = extraOptions
+    }
+
+    public static func smokeTest(
+        userKnownHostsFile: String,
+        identityFile: String? = nil,
+        configFile: String? = nil,
+        strictHostKeyChecking: String = "accept-new",
+        extraOptions: [String] = []
+    ) -> OpenSSHConfiguration {
+        OpenSSHConfiguration(
+            connectTimeoutSeconds: 5,
+            batchMode: true,
+            hostKeyPolicy: .acceptAnyForSmokeOnly,
+            userKnownHostsFile: userKnownHostsFile,
+            identityFile: identityFile,
+            configFile: configFile,
+            strictHostKeyCheckingOverride: strictHostKeyChecking,
+            extraOptions: extraOptions
+        )
     }
 }
 
@@ -39,23 +70,44 @@ public enum OpenSSHCommandBuilder {
     }
 
     private static func commonArguments(for host: HostProfile, configuration: OpenSSHConfiguration) -> [String] {
-        var arguments: [String] = [
+        var arguments: [String] = []
+
+        if let configFile = configuration.configFile {
+            arguments.append(contentsOf: ["-F", configFile])
+        }
+
+        arguments.append(contentsOf: [
             "-p", "\(host.port)",
             "-o", "ConnectTimeout=\(configuration.connectTimeoutSeconds)",
             "-o", "ServerAliveInterval=15",
             "-o", "ServerAliveCountMax=2"
-        ]
+        ])
 
         if configuration.batchMode {
             arguments.append(contentsOf: ["-o", "BatchMode=yes"])
         }
 
-        if let strictHostKeyChecking = configuration.strictHostKeyChecking {
-            arguments.append(contentsOf: ["-o", "StrictHostKeyChecking=\(strictHostKeyChecking)"])
+        if let identityFile = configuration.identityFile {
+            arguments.append(contentsOf: ["-i", identityFile, "-o", "IdentitiesOnly=yes"])
         }
 
+        if let userKnownHostsFile = configuration.userKnownHostsFile {
+            arguments.append(contentsOf: ["-o", "UserKnownHostsFile=\(userKnownHostsFile)"])
+        }
+
+        let strictHostKeyChecking = configuration.strictHostKeyCheckingOverride ?? defaultStrictHostKeyChecking(for: configuration.hostKeyPolicy)
+        arguments.append(contentsOf: ["-o", "StrictHostKeyChecking=\(strictHostKeyChecking)"])
         arguments.append(contentsOf: configuration.extraOptions)
         return arguments
+    }
+
+    private static func defaultStrictHostKeyChecking(for policy: SSHHostKeyPolicy) -> String {
+        switch policy {
+        case .knownHosts, .pinnedSHA256:
+            return "yes"
+        case .acceptAnyForSmokeOnly:
+            return "accept-new"
+        }
     }
 
     private static func destination(for host: HostProfile) -> String {
